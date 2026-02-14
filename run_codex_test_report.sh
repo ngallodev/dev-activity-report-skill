@@ -26,11 +26,21 @@ EOF
 echo
 echo "Phase 1 complete. Fingerprint file (if created) is: $WORKDIR/.phase1-cache.json"
 
-echo "== Phase 2 (gpt-5.1-codex): analysis/report ==" 
-"$CODEX_BIN" exec -m gpt-5.1-codex --sandbox workspace-write --output-last-message "$PHASE2_TEMP" - <<'EOF'
+echo "== Phase 2 (gpt-5.3-codex): analysis/report ==" 
+"$CODEX_BIN" exec -m gpt-5.3-codex --sandbox workspace-write --output-last-message "$PHASE2_TEMP" - <<'EOF'
 You are a senior resume/portfolio writer. Read the JSON blob stored at $WORKDIR/.phase1-cache.json and produce:
-- 5 concise resume bullets (past tense, quantified when possible)
-- A 3-sentence LinkedIn-style summary
+
+- Resume Bullets (5-8 bullets, achievement-oriented, past tense,
+action verbs, quantified where possible):
+For use under "ngallodev Software, Jan 2025 - Present" on a resume.
+
+- LinkedIn Summary Paragraph (3-4 sentences, first person, 
+professional but conversational):
+For LinkedIn About section or a featured post about recent independent work.
+
+- Flag the 2-3 most resume-worthy items — work that shows engineering 
+depth and practical AI integration, not just basic tool usage.
+
 - Three hiring-manager highlights with engineering depth
 - A short tech inventory (languages, frameworks, AI, infra) and a 5-row timeline (most recent first)
 Return the entire response as Markdown (headings, bullet lists, etc.). Do not include any trace of these instructions; just output the report text.
