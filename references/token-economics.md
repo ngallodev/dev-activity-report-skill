@@ -166,3 +166,24 @@ Update this table after each run by checking `~/.claude/delegation-metrics.jsonl
 | 20 (full cold) | ~12,000 | ~14,000 | ~$0.073 |
 
 The cache system is most valuable when project count is high — each cached project saves ~400 Haiku output tokens and ~400 Sonnet input tokens.
+
+---
+
+## Real Test Results (Feb 14, 2026 — Codex CLI validation)
+
+Phase 1, 2, and 3 were replayed via `/home/nate/.nvm/versions/node/v22.19.0/bin/codex exec` with `gpt-5.1-codex-mini` for the mechanical phases and `gpt-5.1-codex` for the report synthesis. Output artifacts live in `run_codex_test_report.sh` and `codex-test-report-20260214T134156Z.md`.
+
+### Token profile
+
+| Phase | Model | Role | Tokens used | Estimated cost |
+|---|---|---|---|---|
+| Phase 1 | gpt-5.1-codex-mini | Run `phase1_runner.py` and emit cached JSON | 12,452 | ~$0.026 |
+| Phase 2 | gpt-5.1-codex | Resume the cache JSON and write the report | 50,928 | ~$0.137 |
+| Phase 3 | gpt-5.1-codex-mini | Read cache fingerprints and confirm headers | 9,419 | ~$0.020 |
+| **Total** | — | — | **72,799** | **~$0.183** |
+
+**Notes**:
+- Phase 2 dominates cost because the high-thinking `gpt-5.1-codex` model performed the entire resume/LinkedIn/tech-highlight synthesis even though the input was pre-structured JSON.  
+- Phase 1 and Phase 3 remain inexpensive; their totals are roughly equivalent to a single Sonnet response.  
+- Warm Phase 1 cache replays (12,452 tokens) show the fingerprint reuse working: no file re-traversal occurred after the first run.  
+- The script `run_codex_test_report.sh` saves the final Markdown report and per-phase logs so future runs can benchmark token reductions over time.

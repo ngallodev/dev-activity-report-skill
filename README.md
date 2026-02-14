@@ -23,7 +23,7 @@ A Claude Code skill that scans your local development environment — git repos,
 
 `/dev-activity-report` runs a three-phase pipeline:
 
-1. **Phase 1 — Data gathering** (delegated to Claude Haiku): A single Python/bash script scans all configured directories, checks per-project cache fingerprints (git hash or mtime), and collects raw facts only for stale or uncached projects. Also scans `~/.codex/sessions/` for Codex usage patterns.
+1. **Phase 1 — Data gathering** (delegated to Claude Haiku): `phase1_runner.py` (invoked through a `haiku` Bash subagent) scans all configured directories, builds a structured JSON payload, caches it in `.phase1-cache.json`, and prints it. The next run recomputes an aggregated fingerprint, and if nothing changed the same JSON is re-emitted without touching the filesystem, so Phase 1 only runs when there is fresh data.
 
 2. **Phase 2 — Synthesis** (Claude Sonnet): Produces the full report from Haiku's compact output only — no re-reading files. Generates resume bullets, a LinkedIn paragraph, tech inventory, timeline, and hiring manager highlights.
 
@@ -81,6 +81,8 @@ Real measurements from a ~55-project environment (21 `.not-my-work`, 9 `.skip-fo
 
 The `.skip-for-now` marker had a meaningful impact on its own: dropping 9 directories reduced Phase 1 from 18,304 tokens (~$0.024) to 8,233 (~$0.010) — a 55% reduction in data-gathering cost, independent of caching.
 
+The new Phase 1 fingerprint cache takes things further: once `phase1_runner.py` has built a JSON payload, reruns with the same fingerprint simply reprint that payload and never re-run the Haiku scan, so the marginal cost becomes Phase 2 only.
+
 > Full benchmarks, scaling tables, and real token counts in `references/token-economics.md`.
 
 ---
@@ -111,6 +113,9 @@ Each scanned project gets a `.dev-report-cache.md` with a fingerprint header:
 ```
 
 On subsequent scans, if the fingerprint matches, the cached analysis is used verbatim. Git repos use commit hash (precise); non-git directories use directory mtime (conservative).
+
+### Phase 1 fingerprint cache
+`phase1_runner.py` also builds a global fingerprint across ownership markers, project directories, extras, Claude data, Codex sessions, and the insights log. The fingerprint and the structured JSON payload are stored in `.phase1-cache.json`; if a rerun finds no changes it simply reprints that JSON (Haiku never re-traverses the tree). The upshot: warm runs emit exactly one JSON object and trimming Phase 1 output costs almost nothing.
 
 ### Codex session analytics
 Scans `~/.codex/sessions/` to surface Codex usage patterns — sessions by month, active project directories, installed skills, configured model — and includes them in the report and cache.

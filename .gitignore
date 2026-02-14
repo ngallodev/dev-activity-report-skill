@@ -1,2 +1,6 @@
 .env
 .dev-report-cache.md
+.phase1-cache.json
+codex-phase*.log
+codex-test-report-*.md
+codex-phase2-last-message.txt
