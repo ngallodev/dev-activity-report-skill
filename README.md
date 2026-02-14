@@ -70,16 +70,16 @@ A three-phase pipeline (Haiku data gathering → Sonnet synthesis → Codex cach
 
 Real measurements from a ~55-project environment (21 `.not-my-work`, 9 `.skip-for-now`, ~12 cached, 3 stale):
 
-| Run type | Phase 1 tokens | Phase 1 time | Phase 1 tool uses | Total est. |
-|---|---|---|---|---|
-| Cold scan, no caches | ~18,300 | ~43s | 10 | **~$0.040** |
-| Warm scan, 12 hits, `.skip-for-now` added | **7,819** | **8.7s** | **1** | **~$0.031** |
-| Fully warm, all skipped/cached | **~8,200** | **~7s** | **1** | **~$0.031** |
-| vs. all-Sonnet (no delegation, original approach) | — | — | — | **~$0.113** |
+| Run type | Phase 1 tokens | Phase 1 cost | Phase 1 time | Tool uses | Total cost |
+|---|---|---|---|---|---|
+| Cold scan, no caches, no skips | ~18,300 | ~$0.024 | ~43s | 10 | **~$0.040** |
+| Warm scan, 12 hits + `.skip-for-now` | **7,819** | **~$0.010** | **8.7s** | **1** | **~$0.031** |
+| Fully warm, all skipped/cached | **~8,200** | **~$0.006** | **~7s** | **1** | **~$0.031** |
+| All-Sonnet, no delegation (original) | ~25,000 | ~$0.075 | ~71s | ~15 | **~$0.113** |
 
-**~65% total cost savings** from delegating off Sonnet. The warm Phase 1 is effectively free — 8k tokens at Haiku rates is ~$0.006. Phase 2 Sonnet synthesis (~$0.025) is the irreducible cost floor.
+**~65% total cost savings** from delegating off Sonnet. The warm Phase 1 is effectively free at Haiku rates — Phase 2 Sonnet synthesis (~$0.025) is the irreducible cost floor regardless of caching.
 
-The `.skip-for-now` marker had a meaningful impact: dropping 9 directories from the scan reduced Phase 1 from 18,304 tokens to 8,233 — a 55% reduction in data-gathering cost alone, before caching.
+The `.skip-for-now` marker had a meaningful impact on its own: dropping 9 directories reduced Phase 1 from 18,304 tokens (~$0.024) to 8,233 (~$0.010) — a 55% reduction in data-gathering cost, independent of caching.
 
 > Full benchmarks, scaling tables, and real token counts in `references/token-economics.md`.
 
