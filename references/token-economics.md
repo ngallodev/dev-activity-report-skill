@@ -65,7 +65,38 @@ A warm scan costs roughly the same as a cold one because Phase 2 synthesis domin
 
 ---
 
-## Real Test Results (Feb 14, 2026)
+## Real Test Results (Feb 13, 2026 — Session 2)
+
+### Phase 1 Haiku — warm cache verification run (12/21 cache hits)
+
+| Metric | Value |
+|---|---|
+| Wall time | 8.7 seconds |
+| Total tokens | 7,819 |
+| Tool uses | 1 (single Python script block) |
+| Cache hits | 12 projects |
+| Cache misses | 9 (never-cached minor dirs) + mariadb (new commit) |
+
+**This is the target warm-scan performance.** 7,819 tokens vs. 18,304 on the prior run (57% reduction), 1 tool use vs. 7, 8.7s vs. 42.5s. The single-Bash-call design working as intended.
+
+### Bug fixed this session: non-git directory mtime drift
+
+Writing `.dev-report-cache.md` inside a non-git directory bumps that directory's mtime, immediately invalidating the fingerprint stored in the cache header. On the next scan, the directory mtime no longer matches the recorded fingerprint → spurious re-scan.
+
+**Fix**: Changed non-git fingerprint from `stat mtime` of the directory to `max mtime of content files excluding .dev-report-cache.md`. Git repos are unaffected (still use commit hash). Applied consistently across all three fingerprinting sites in the Phase 1 prompt.
+
+### Phase 1 Haiku — v3 run (prior run, 5 cache hits)
+
+| Metric | Value |
+|---|---|
+| Wall time | 42.5 seconds |
+| Total tokens | 18,304 |
+| Tool uses | 10 |
+| Cache hits | 5 projects (git-hash repos only) |
+
+---
+
+## Real Test Results (Feb 14, 2026 — Session 1, historical)
 
 ### Phase 1 Haiku run — first execution (warm project caches, cold prompt cache)
 

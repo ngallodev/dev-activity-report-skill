@@ -56,14 +56,24 @@ python3 - << 'PYEOF'
 import os, subprocess
 
 apps_dir = '${APPS_DIR}'
+
+def dir_fp(d):
+    """Git hash for git repos; max mtime of content files (excluding .dev-report-cache.md) for non-git dirs."""
+    r = subprocess.run(['git','-C',d,'rev-parse','HEAD'], capture_output=True, text=True)
+    if r.returncode == 0: return r.stdout.strip()
+    result = subprocess.run(
+        f'find {d} -maxdepth 3 -not -name ".dev-report-cache.md" -not -path "*/.git/*" -type f -printf "%T@\\n" 2>/dev/null | sort -n | tail -1',
+        shell=True, capture_output=True, text=True)
+    mt = result.stdout.strip().split('.')[0] if result.stdout.strip() else ''
+    return mt or subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
+
 skip = set()
 for f in subprocess.check_output(f"find {apps_dir} -maxdepth 2 -name '.not-my-work'", shell=True, text=True).splitlines():
     skip.add(f.replace('/.not-my-work',''))
 for name in sorted(os.listdir(apps_dir)):
     d = f'{apps_dir}/{name}'
     if not os.path.isdir(d) or d in skip: continue
-    r = subprocess.run(['git','-C',d,'rev-parse','HEAD'], capture_output=True, text=True)
-    fp = r.stdout.strip() if r.returncode==0 else subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
+    fp = dir_fp(d)
     cache = subprocess.run(['head','-2',f'{d}/.dev-report-cache.md'], capture_output=True, text=True).stdout.strip()
     print(f'{d} | {fp} | {cache}')
 PYEOF
@@ -79,6 +89,15 @@ def read(path, lines=50):
         with open(path) as f: return ''.join(f.readlines()[:lines]).strip()
     except: return ''
 
+def dir_fp(d):
+    r = subprocess.run(['git','-C',d,'rev-parse','HEAD'], capture_output=True, text=True)
+    if r.returncode == 0: return r.stdout.strip()
+    result = subprocess.run(
+        f'find {d} -maxdepth 3 -not -name ".dev-report-cache.md" -not -path "*/.git/*" -type f -printf "%T@\\n" 2>/dev/null | sort -n | tail -1',
+        shell=True, capture_output=True, text=True)
+    mt = result.stdout.strip().split('.')[0] if result.stdout.strip() else ''
+    return mt or subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
+
 skip = set()
 for f in subprocess.check_output(f"find {apps_dir} -maxdepth 2 -name '.not-my-work'", shell=True, text=True).splitlines():
     skip.add(f.replace('/.not-my-work',''))
@@ -86,8 +105,7 @@ for f in subprocess.check_output(f"find {apps_dir} -maxdepth 2 -name '.not-my-wo
 for name in sorted(os.listdir(apps_dir)):
     d = f'{apps_dir}/{name}'
     if not os.path.isdir(d) or d in skip: continue
-    r = subprocess.run(['git','-C',d,'rev-parse','HEAD'], capture_output=True, text=True)
-    fp = r.stdout.strip() if r.returncode==0 else subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
+    fp = dir_fp(d)
     cache_hdr = subprocess.run(['head','-1',f'{d}/.dev-report-cache.md'], capture_output=True, text=True).stdout.strip()
     if fp and cache_hdr and fp in cache_hdr: continue  # cache hit — skip
     print(f'\n--- PROJECT: {name} ---')
@@ -126,11 +144,19 @@ def read(path, lines=30):
         with open(path) as f: return ''.join(f.readlines()[:lines]).strip()
     except: return ''
 
+def dir_fp(d):
+    r = subprocess.run(['git','-C',d,'rev-parse','HEAD'], capture_output=True, text=True)
+    if r.returncode == 0: return r.stdout.strip()
+    result = subprocess.run(
+        f'find {d} -maxdepth 3 -not -name ".dev-report-cache.md" -not -path "*/.git/*" -type f -printf "%T@\\n" 2>/dev/null | sort -n | tail -1',
+        shell=True, capture_output=True, text=True)
+    mt = result.stdout.strip().split('.')[0] if result.stdout.strip() else ''
+    return mt or subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
+
 for d in extra_dirs:
     d = os.path.expanduser(d)
     if not os.path.isdir(d): continue
-    r = subprocess.run(['git','-C',d,'rev-parse','HEAD'], capture_output=True, text=True)
-    fp = r.stdout.strip() if r.returncode==0 else subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
+    fp = dir_fp(d)
     cache_hdr = subprocess.run(['head','-1',f'{d}/.dev-report-cache.md'], capture_output=True, text=True).stdout.strip()
     if fp and cache_hdr and fp in cache_hdr:
         print(f'CACHE HIT: {d}')
