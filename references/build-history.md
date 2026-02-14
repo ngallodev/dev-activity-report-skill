@@ -362,10 +362,50 @@ The 9 permanent misses (`.claude`, `.continue`, `aitest`, `clicky`, `continue.co
 
 ---
 
+## Milestone 10 — `.skip-for-now` Marker
+
+*Session: 2026-02-13 (continued) | Author: ngallodev + Claude Sonnet 4.5*
+
+**What happened**: The 9 never-cached minor directories (`.claude`, `.continue`, `aitest`, `clicky`, `continue.config`, `indydevdan`, `jelly`, `research`, `s`) were being re-scanned every run since they had no cache and no `.not-my-work` marker. Needed a way to silence them without implying they're upstream clones.
+
+**New marker**: `.skip-for-now` — skip a directory silently. Semantically distinct from `.not-my-work`:
+
+| Marker | Intended meaning |
+|---|---|
+| `.not-my-work` | "This is someone else's repo — upstream clone, no original contribution" |
+| `.skip-for-now` | "This is mine (or mine-adjacent) but parked, incomplete, or not worth reporting yet" |
+
+The distinction matters for honesty: marking a WIP project `.not-my-work` would be misleading. `.skip-for-now` says "I know about this, I'm choosing to defer it."
+
+**Implementation**: Added to the skip-set build loop in all three Phase 1 fingerprinting sites using a shared pattern:
+
+```python
+for marker in ['.not-my-work', '.skip-for-now']:
+    for f in subprocess.check_output(f"find {apps_dir} -maxdepth 2 -name '{marker}'", shell=True, text=True).splitlines():
+        skip.add(f.replace(f'/{marker}',''))
+```
+
+Also added to the `find` in SECTION: OWNERSHIP MARKERS, the marker reference table in SKILL.md, and README installation instructions.
+
+**Verified run results**:
+
+| Metric | Value |
+|---|---|
+| Total tokens | 8,233 |
+| Tool uses | 1 |
+| Wall time | 6.95 seconds |
+| Skipped | 43 (21 `.not-my-work` + 4 `.forked-work`/`.not-my-work` combo + 9 `.skip-for-now` + marker-only dirs) |
+| Cache hits | 10 |
+| Cache misses | 2 (new commits: dev-activity-report-skill, invoke-codex-from-claude) + mariadb extra |
+
+The 2 misses are expected — both repos received new commits this session. Clean warm-scan behavior confirmed.
+
+---
+
 ## What a Next Session Should Do
 
 - Consider adding `--refresh` flag to force full re-scan despite valid caches
 - Consider `--since <date>` flag to scope the report to a time window
 - Investigate multi-machine support (SSH or remote filesystem mounts)
 - Add the codex-job invocation path issue to known limitations in README (invoke script lives in invoke-codex-from-claude, not in installed skill)
-- Cache the 9 never-cached minor dirs or explicitly skip them with `.not-my-work` to eliminate the minor noise
+- Update cache headers for dev-activity-report-skill and invoke-codex-from-claude after their next commits settle
