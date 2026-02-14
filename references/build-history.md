@@ -205,3 +205,114 @@ The test revealed that `general-purpose` vs `Bash` subagent type caused a 100x d
 - Write cache files for remaining uncached original-work projects (anth, codex-workflows, jenkins, indydevdan)
 - Consider adding a `--refresh` flag concept to the skill for forcing full re-scan despite valid caches
 - Consider whether `.dev-report-cache.md` should be added to a global `.gitignore` pattern or left as-is (currently committed if the project has git)
+
+---
+
+## Milestone 8 — PII Extraction, `.env` Config, Codex Scanning, README, GitHub
+
+*Session: 2026-02-13 (continued) | Author: ngallodev + Claude Sonnet 4.5*
+
+**What happened**: Second session continuing directly from the context-compacted first. Four improvements requested simultaneously: PII/config extraction, Codex session scanning, README, and GitHub publication.
+
+### 8a — `.env` Configuration System
+
+**Problem**: SKILL.md had hardcoded user-specific values scattered throughout — paths (`/lump/apps/`, `/usr/local/lib/mariadb`), identity strings (`ngallodev Software, Jan 2025 – Present`), and model names (`haiku`, `gpt-5.1-codex-mini`).
+
+**Solution**: Extracted all 9 user-specific values into a `.env` file with `.env.example` committed and `.env` gitignored:
+
+| Variable | Purpose |
+|---|---|
+| `APPS_DIR` | Primary projects directory |
+| `EXTRA_SCAN_DIRS` | Space-separated additional fixed paths |
+| `CODEX_HOME` | Path to Codex home (`~/.codex`) |
+| `CLAUDE_HOME` | Path to Claude home (`~/.claude`) |
+| `REPORT_OUTPUT_DIR` | Where to write the report file |
+| `REPORT_FILENAME_PREFIX` | Report filename prefix |
+| `RESUME_HEADER` | Name/company for resume section header |
+| `PHASE1_MODEL` | Haiku model alias for data gathering |
+| `PHASE3_MODEL` | Codex model for cache writes |
+
+SKILL.md now uses `${VAR}` placeholders throughout with an instruction to resolve from `.env` before constructing the Phase 1 prompt. The Configuration section shows a defaults table so the skill works out-of-the-box without a `.env` present.
+
+**Design insight**: The SKILL.md description field also previously mentioned hardcoded paths. Updated to generic language so the skill's trigger description doesn't expose machine-specific layout.
+
+### 8b — Codex Session Scanning
+
+**Problem**: `~/.codex/sessions/` contains rich data about Codex usage (projects worked on, session frequency, model config, installed skills) but was not being scanned.
+
+**What the scan produces**:
+- Session count by month (surfaced: 13 sessions Jan 2026, 37 Feb 2026 — accelerating usage)
+- Active project directories (extracted from `<cwd>` tags in session JSONL)
+- Codex config (model, reasoning effort, personality, per-project trust levels)
+- Installed Codex skills (`~/.codex/skills/`)
+- Permission rules count (57 entries in `default.rules`)
+
+**Cache strategy**: `~/.codex/.dev-report-cache.md` fingerprinted on the mtime of the `sessions/` directory. When new sessions are added, the directory mtime changes and the cache invalidates. Cached summary written after Phase 3.
+
+**I/O bound**: Only last 50 session files scanned to bound read time. Sessions can be large JSONL files; reading all of them unbounded would dominate Phase 1 cost.
+
+**New report section added**: "Codex Activity" section in Phase 2 output, plus "Parallel Claude + Codex skills ecosystems" added as a Hiring Manager Highlight.
+
+### 8c — Third Report Run (v3)
+
+Executed `/dev-activity-report` with the new SKILL.md. Results:
+
+- Phase 1 Haiku: 18,304 tokens, 10 tool uses, 42.5 seconds
+- Cache hits: 5 projects (agentic-workflow, invoke-codex-from-claude, osint-framework, secret-sauce-proj; app-tracker fingerprint changed)
+- New stale projects analyzed: anth, codex-workflows, dev-activity-report-skill, dotnet10-app, jenkins, mcp4kali, ollama (+ mariadb extra location + codex home first scan)
+- Codex activity surfaced: 50 sessions, 9 active cwds, gpt-5.2 model, 57 rules, `local-activity-summary` skill
+- Report saved to `~/dev-activity-report-2026-02-13-v3.md`
+
+**Phase 3 note**: The `/codex-job` skill's `invoke_codex_with_review.sh` script lives in the `invoke-codex-from-claude` repo, not the installed skill directory. The codex-job SKILL.md assumes it's invoked from within that repo. For standalone use (e.g., from dev-activity-report), the cache writes were done directly via a Python one-liner — appropriate since 9 deterministic file writes is below the delegation threshold.
+
+### 8d — README
+
+Written as a dual-audience document: portfolio showcase first, technical docs second.
+
+Structure:
+1. One-line pitch + "turns this into this" code block showing real transformation
+2. How It Works (three-phase pipeline summary)
+3. Sample Output — real resume bullets, LinkedIn paragraph, hiring manager highlights from the author's environment
+4. Token Cost table with real numbers ($0.040 cold / $0.031 warm vs. $0.113 all-Sonnet)
+5. Key Features — ownership markers, per-project caching, Codex analytics, `.env` config
+6. Limitations & Roadmap — honest single-machine scope acknowledgment, multi-machine as planned enhancement
+7. Installation + Usage
+8. File Reference
+9. How It Was Built — links to build-history, surfaces design principles
+
+**Design decision — sample output**: Used real output from the author's environment rather than fictional examples. More convincing as a portfolio piece; project names are already public-safe.
+
+### 8e — GitHub Publication
+
+Repo created at `https://github.com/ngallodev/dev-activity-report-skill` (public). Initial commit includes SKILL.md, .env.example, .gitignore, README.md, and all four references files. The `.dev-report-cache.md` file in the skill dir itself was intentionally left out of the initial commit (untracked).
+
+---
+
+## Files Produced This Session
+
+| File | Purpose |
+|---|---|
+| `~/.claude/skills/dev-activity-report/SKILL.md` | Core skill instructions |
+| `~/.claude/skills/dev-activity-report/references/token-economics.md` | Cost benchmarks, not loaded in context |
+| `~/.claude/skills/dev-activity-report/references/build-history.md` | This document |
+| `~/dev-activity-report-2026-02-13.md` | First report output |
+| `~/dev-activity-report-2026-02-13-v2.md` | Second report output (ownership-corrected) |
+| `~/dev-activity-report-2026-02-13-v3.md` | Third report output (Codex activity included) |
+| `/lump/apps/*/.dev-report-cache.md` | Per-project analysis caches (19 written total) |
+| `/home/nate/.codex/.dev-report-cache.md` | Codex session analytics cache (new) |
+| `/lump/apps/*/.not-my-work` | Ownership markers (21 directories) |
+| `/lump/apps/*/.forked-work` | Contribution summaries (4 auto-generated) |
+| `/lump/apps/dev-activity-report-skill/.env.example` | Config template |
+| `/lump/apps/dev-activity-report-skill/.gitignore` | Ignores .env |
+| `/lump/apps/dev-activity-report-skill/README.md` | Portfolio README |
+
+---
+
+## What a Next Session Should Do
+
+- Verify warm-scan token counts now that all projects are cached (expected: ~$0.031, Phase 1 ~5k tokens with Bash agent)
+- Update `references/token-economics.md` with v3 run real numbers
+- Consider adding `--refresh` flag to force full re-scan despite valid caches
+- Consider `--since <date>` flag to scope report to a time window
+- Investigate multi-machine support (SSH or remote filesystem mounts)
+- Add the codex-job invocation path issue to known limitations in README (invoke script lives in invoke-codex-from-claude, not in installed skill)
