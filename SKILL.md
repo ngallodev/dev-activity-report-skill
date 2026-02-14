@@ -26,8 +26,32 @@ Key variables and defaults:
 | `RESUME_HEADER` | `ngallodev Software, Jan 2025 – Present` |
 | `PHASE1_MODEL` | `haiku` |
 | `PHASE3_MODEL` | `gpt-5.1-codex-mini` |
+| `SKILL_DIR` | directory containing this SKILL.md file |
+
+`SKILL_DIR` is not set in `.env` — resolve it at runtime as the directory containing this SKILL.md file (e.g. `~/.claude/skills/dev-activity-report`).
 
 Substitute all `${VAR}` references below with the resolved values before constructing the Phase 1 prompt.
+
+---
+
+## Phase 0 — Capture Insights Snapshot (optional, best-effort)
+
+Before data gathering, check whether a Claude Code insights report exists at `~/.claude/usage-data/report.html`. This file is only present after the user has run `/insights`.
+
+- If the file **does not exist**: print a one-line warning — `Note: no /insights report found at ~/.claude/usage-data/report.html — run /insights to include usage patterns in the log.` — then continue to Phase 1.
+- If the file **exists**: extract the following fields from the HTML and append a new dated entry to `references/insights/insights-log.md` in this skill's directory (create the file if missing, using the existing log as a template):
+  - Date (today's date)
+  - Session/message/line/file/day stats (from `.stats-row`)
+  - Project areas with session counts (from `.project-areas`)
+  - Usage pattern summary (from `.narrative` key insight)
+  - Wins (from `.big-wins` titles + descriptions, condensed)
+  - Friction categories (from `.friction-categories` titles + condensed description)
+  - Top tools used (from chart data)
+  - Outcomes (fully/mostly achieved counts)
+
+**Do not fail or halt if parsing the HTML is imperfect** — extract what you can and skip missing fields. This is a best-effort enrichment step.
+
+The insights log lives at: `${SKILL_DIR}/references/insights/insights-log.md`
 
 ---
 
@@ -180,6 +204,9 @@ ls ${CLAUDE_HOME}/hooks/ 2>/dev/null
 ls ${CLAUDE_HOME}/agents/team/ 2>/dev/null
 head -2 ${CLAUDE_HOME}/delegation-metrics.jsonl 2>/dev/null
 
+=== SECTION: INSIGHTS LOG ===
+tail -60 ${SKILL_DIR}/references/insights/insights-log.md 2>/dev/null || echo "No insights log found"
+
 === SECTION: CODEX ACTIVITY ===
 python3 - << 'PYEOF'
 import os, subprocess, json, glob
@@ -267,7 +294,7 @@ Using only the data collected in Phase 1 (do not re-read any files), produce:
 2. **Forked & modified** — projects with `.forked-work` (credit upstream, describe only your changes)
 3. **Codex activity** — sessions, projects Codex was used on, notable patterns
 4. **Technical problems solved** — 4-6 items max, one sentence each
-5. **AI workflow patterns** — 3-5 items, one sentence each (include Claude + Codex collaboration patterns)
+5. **AI workflow patterns** — 3-5 items, one sentence each (include Claude + Codex collaboration patterns; if INSIGHTS LOG section is present, use its workflow patterns and wins as additional context)
 6. **Tech inventory** — one line per category: Languages, Frameworks, AI/LLM, Infra
 7. **Timeline** — 5-6 rows, most recent first
 
