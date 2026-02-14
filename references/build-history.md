@@ -402,6 +402,31 @@ The 2 misses are expected — both repos received new commits this session. Clea
 
 ---
 
+## Milestone 11 — README Token Cost Table Completed
+
+*Session: 2026-02-13 (continued) | Author: ngallodev + Claude Sonnet 4.5*
+
+**What happened**: The token cost table in README.md was missing the Phase 1 cost column and the all-Sonnet baseline row had no token count or per-phase cost — making it hard to compare the value of delegation at a glance.
+
+**Changes**: Added Phase 1 cost column to every row; added all-Sonnet token count (~25,000 in / ~2,500 out) and computed cost (~$0.075 Phase 1, ~$0.113 total). The table now has 6 columns: run type, Phase 1 tokens, Phase 1 cost, time, tool uses, total cost.
+
+**Costs computed from pricing table** (Haiku $0.80/$4.00 per 1M, Sonnet $3.00/$15.00 per 1M):
+- Cold Phase 1 (18,300 tok, ~14k in / ~4k out Haiku): $0.011 + $0.016 = ~$0.024
+- Warm Phase 1 (7,819 tok, ~6.5k in / ~1.3k out Haiku): $0.005 + $0.005 = ~$0.010
+- Fully warm Phase 1 (~8,200 tok Haiku): ~$0.006
+- All-Sonnet Phase 1 (25k in / 2.5k out Sonnet): $0.075 + $0.0375 = ~$0.113 total
+
+Final table in README:
+
+| Run type | Phase 1 tokens | Phase 1 cost | Time | Tool uses | Total cost |
+|---|---|---|---|---|---|
+| Cold, no caches, no skips | ~18,300 | ~$0.024 | ~43s | 10 | ~$0.040 |
+| Warm + `.skip-for-now` | 7,819 | ~$0.010 | 8.7s | 1 | ~$0.031 |
+| Fully warm, all skipped/cached | ~8,200 | ~$0.006 | ~7s | 1 | ~$0.031 |
+| All-Sonnet, no delegation | ~25,000 | ~$0.075 | ~71s | ~15 | ~$0.113 |
+
+---
+
 ## What a Next Session Should Do
 
 - Consider adding `--refresh` flag to force full re-scan despite valid caches
