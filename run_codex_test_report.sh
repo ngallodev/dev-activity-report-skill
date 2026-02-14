@@ -28,7 +28,7 @@ echo "Phase 1 complete. Fingerprint file (if created) is: $WORKDIR/.phase1-cache
 
 echo "== Phase 2 (gpt-5.3-codex): analysis/report ==" 
 "$CODEX_BIN" exec -m gpt-5.3-codex --sandbox workspace-write --output-last-message "$PHASE2_TEMP" - <<'EOF'
-You are a senior resume/portfolio writer. Read the JSON blob stored at $WORKDIR/.phase1-cache.json and produce:
+You are a senior resume/portfolio writer. Read the JSON blob stored at /lump/apps/dev-activity-report-skill/.phase1-cache.json and produce:
 
 - Resume Bullets (5-8 bullets, achievement-oriented, past tense,
 action verbs, quantified where possible):
@@ -56,13 +56,13 @@ fi
 
 echo "== Phase 3 (gpt-5.1-codex-mini): cache verification =="
 "$CODEX_BIN" exec -m gpt-5.1-codex-mini --sandbox workspace-write - <<'EOF' | tee "$PHASE3_LOG"
-Please `cd $WORKDIR` and run the following Python command:
+Please `cd /lump/apps/dev-activity-report-skill` and run the following Python command:
 
 python3 - <<'PY'
 import json
 from pathlib import Path
 
-skill_dir = Path("$WORKDIR")
+skill_dir = Path("/lump/apps/dev-activity-report-skill")
 phase1_path = skill_dir / ".phase1-cache.json"
 reports = []
 
