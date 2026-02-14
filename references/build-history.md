@@ -198,16 +198,6 @@ The test revealed that `general-purpose` vs `Bash` subagent type caused a 100x d
 
 ---
 
-## What a Next Session Should Do
-
-- Run `/dev-activity-report` with the corrected `Bash` subagent to get real warm-cache token counts
-- Update `references/token-economics.md` with actual Bash-agent numbers
-- Write cache files for remaining uncached original-work projects (anth, codex-workflows, jenkins, indydevdan)
-- Consider adding a `--refresh` flag concept to the skill for forcing full re-scan despite valid caches
-- Consider whether `.dev-report-cache.md` should be added to a global `.gitignore` pattern or left as-is (currently committed if the project has git)
-
----
-
 ## Milestone 8 — PII Extraction, `.env` Config, Codex Scanning, README, GitHub
 
 *Session: 2026-02-13 (continued) | Author: ngallodev + Claude Sonnet 4.5*
@@ -426,6 +416,39 @@ Final table in README:
 | All-Sonnet, no delegation | ~25,000 | ~$0.075 | ~71s | ~15 | ~$0.113 |
 
 ---
+
+## Milestone 12 — Phase 1 fingerprint cache & structured output
+
+*Session: 2026-02-14 | Author: ngallodev + Claude Sonnet 4.5*
+
+**What happened**: The optimization plan was captured in `PLAN.md`, and Phase 1 was rewritten so Haiku no longer emits verbose command dumps. A helper script now gathers ownership markers, stale-project facts, extra directories, Claude/Codex activity, and the insights log; caches the resulting JSON payload plus a global fingerprint; and prints exactly one JSON object that Phase 2 consumes. README and `.gitignore` explain the new behavior.
+
+**Implementation highlights**:
+- `PLAN.md` now spells out the objectives: short-circuiting Phase 1 with a global fingerprint, emitting structured JSON instead of raw command output, and silencing terminal noise.
+- `phase1_runner.py` computes the fingerprint, writes `.phase1-cache.json`, and prints `{"fingerprint":..., "cache_hit": <bool>, "data": {...}}`, so warm runs can reuse the cached payload without rerunning Haiku.
+- SKILL.md now simply runs `python3 phase1_runner.py`, documents the fast-path behavior, and tells Phase 2 to read only the `data` object (including `forked_work_modified`’s structured entries).
+- README now highlights the helper script and the Phase 1 fingerprint cache so users understand why warm runs are effectively free. `.phase1-cache.json` is gitignored to keep the cache local.
+
+**Design insight**: Treating the entire Phase 1 payload as an atomic cached artifact (fingerprint + JSON) keeps warm runs quiet, fast, and token-cheap. Haiku only traverses the filesystem when something actually changes.
+
+---
+
+## Milestone 13 — Codex CLI test run & token audit
+
+*Session: 2026-02-14 | Author: ngallodev + Codex gpt-5.1-codex/gpt-5.1-codex-mini*
+
+**What happened**: Added `run_codex_test_report.sh` as a reusable Codex CLI harness (Phase 1 + 3 with `gpt-5.1-codex-mini`, Phase 2 with `gpt-5.1-codex`). The script collects the fingerprints, saves `codex-test-report-20260214T134156Z.md`, and runs a quick cache-header verification so every `.dev-report-cache.md` still carries the expected hash.
+
+**Benchmark**:
+- Phase 1 (mini): 12,452 tokens — warm fingerprint replay via `phase1_runner.py`.  
+- Phase 2 (Codex): 50,928 tokens — professional resume/LinkedIn/highlights synthesis from the cached JSON.  
+- Phase 3 (mini): 9,419 tokens — cache verification across the affected projects.  
+Total: ~72.8k tokens (~$0.18 at Codex mini/Codex rates). Log files (`codex-phase1-*.log`, `codex-phase3-*.log`) capture the full Codex session, and the final report is available for downstream review.
+
+**Design insight**: The structured Phase 1 JSON now survives Codex-driven executions, keeping mechanical phases cheap while centralizing cost control in a single Sonnet-style synthesis phase.
+
+---
+
 
 ## What a Next Session Should Do
 

@@ -64,229 +64,28 @@ Task tool call:
 subagent_type: Bash
 model: ${PHASE1_MODEL}
 description: "Phase 1 dev-activity-report data collection"
-prompt: (see below)
+prompt: |
+  python3 phase1_runner.py
 ```
 
-Prompt to send (substitute all ${VAR} values before sending):
+`phase1_runner.py` (new at the skill root) reads `${APPS_DIR}`, `${EXTRA_SCAN_DIRS}`, `${CLAUDE_HOME}`, `${CODEX_HOME}`, and the insights log, then:
+1. Computes a global fingerprint for all datasets and compares it against `.phase1-cache.json`.
+2. If the fingerprint is unchanged, it short-circuits, re-emits the cached JSON payload, and exits. No extra commands, no banners, no permission errors spill into the terminal.
+3. If anything changed, it gathers the structured payload (ownership markers, cache fingerprints, stale-project facts, `.forked-work-modified` context, extra directories, Claude/Codex activity, and the insights log), writes the fingerprint + payload back into `.phase1-cache.json`, and prints a single JSON object: `{"fingerprint": <hash>, "cache_hit": false, "data": {...}}`.
 
-```
-You are a data collection agent. Run the following bash commands exactly and return ALL output verbatim with section headers. Do not interpret, summarize, or omit anything.
-
-=== SECTION: OWNERSHIP MARKERS ===
-find ${APPS_DIR} -maxdepth 2 \( -name ".not-my-work" -o -name ".forked-work" -o -name ".forked-work-modified" -o -name ".skip-for-now" \) | sort
-
-=== SECTION: CACHE FINGERPRINTS ===
-python3 - << 'PYEOF'
-import os, subprocess
-
-apps_dir = '${APPS_DIR}'
-
-def dir_fp(d):
-    """Git hash for git repos; max mtime of content files (excluding .dev-report-cache.md) for non-git dirs."""
-    r = subprocess.run(['git','-C',d,'rev-parse','HEAD'], capture_output=True, text=True)
-    if r.returncode == 0: return r.stdout.strip()
-    result = subprocess.run(
-        f'find {d} -maxdepth 3 -not -name ".dev-report-cache.md" -not -path "*/.git/*" -type f -printf "%T@\\n" 2>/dev/null | sort -n | tail -1',
-        shell=True, capture_output=True, text=True)
-    mt = result.stdout.strip().split('.')[0] if result.stdout.strip() else ''
-    return mt or subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
-
-skip = set()
-for marker in ['.not-my-work', '.skip-for-now']:
-    for f in subprocess.check_output(f"find {apps_dir} -maxdepth 2 -name '{marker}'", shell=True, text=True).splitlines():
-        skip.add(f.replace(f'/{marker}',''))
-for name in sorted(os.listdir(apps_dir)):
-    d = f'{apps_dir}/{name}'
-    if not os.path.isdir(d) or d in skip: continue
-    fp = dir_fp(d)
-    cache = subprocess.run(['head','-2',f'{d}/.dev-report-cache.md'], capture_output=True, text=True).stdout.strip()
-    print(f'{d} | {fp} | {cache}')
-PYEOF
-
-=== SECTION: STALE PROJECT FACTS ===
-python3 - << 'PYEOF'
-import os, subprocess
-
-apps_dir = '${APPS_DIR}'
-
-def read(path, lines=50):
-    try:
-        with open(path) as f: return ''.join(f.readlines()[:lines]).strip()
-    except: return ''
-
-def dir_fp(d):
-    r = subprocess.run(['git','-C',d,'rev-parse','HEAD'], capture_output=True, text=True)
-    if r.returncode == 0: return r.stdout.strip()
-    result = subprocess.run(
-        f'find {d} -maxdepth 3 -not -name ".dev-report-cache.md" -not -path "*/.git/*" -type f -printf "%T@\\n" 2>/dev/null | sort -n | tail -1',
-        shell=True, capture_output=True, text=True)
-    mt = result.stdout.strip().split('.')[0] if result.stdout.strip() else ''
-    return mt or subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
-
-skip = set()
-for marker in ['.not-my-work', '.skip-for-now']:
-    for f in subprocess.check_output(f"find {apps_dir} -maxdepth 2 -name '{marker}'", shell=True, text=True).splitlines():
-        skip.add(f.replace(f'/{marker}',''))
-
-for name in sorted(os.listdir(apps_dir)):
-    d = f'{apps_dir}/{name}'
-    if not os.path.isdir(d) or d in skip: continue
-    fp = dir_fp(d)
-    cache_hdr = subprocess.run(['head','-1',f'{d}/.dev-report-cache.md'], capture_output=True, text=True).stdout.strip()
-    if fp and cache_hdr and fp in cache_hdr: continue  # cache hit — skip
-    print(f'\n--- PROJECT: {name} ---')
-    print(f'MTIME: {subprocess.check_output(["stat","-c","%y",d]).decode().strip()}')
-    gl = subprocess.run(['git','-C',d,'log','--oneline','-10'], capture_output=True, text=True).stdout.strip()
-    if gl: print(f'GIT LOG:\n{gl}')
-    files = subprocess.run(
-        f'find {d} -maxdepth 3 -not -path "*/.git/*" -not -path "*/node_modules/*" -not -path "*/venv/*" -not -path "*/bin/*" -not -path "*/obj/*" -type f \\( -name "*.md" -o -name "*.csproj" -o -name "Dockerfile*" -o -name "docker-compose*.yml" \\) 2>/dev/null | head -20',
-        shell=True, capture_output=True, text=True).stdout.strip()
-    if files: print(f'KEY FILES:\n{files}')
-    # Also collect any Codex-related files in this project dir
-    codex_files = subprocess.run(
-        f'find {d} -maxdepth 3 -not -path "*/.git/*" -type f \\( -name "AGENTS.md" -o -name "codex.md" -o -name ".codex" \\) 2>/dev/null | head -10',
-        shell=True, capture_output=True, text=True).stdout.strip()
-    if codex_files: print(f'CODEX FILES:\n{codex_files}')
-    for fname in ['README.md','AGENTS.md','.claude/plan.md','.forked-work']:
-        content = read(f'{d}/{fname}')
-        if content: print(f'\n{fname}:\n{content[:800]}')
-PYEOF
-
-=== SECTION: FORKED-WORK-MODIFIED ===
-find ${APPS_DIR} -maxdepth 2 -name ".forked-work-modified" | sed 's|/.forked-work-modified||'
-# Note: .skip-for-now dirs are excluded from forked-work-modified processing too (they won't appear here since find won't descend into them from the stale facts section)
-# For each found, also run:
-# git -C <dir> log --oneline -20
-# git -C <dir> diff HEAD~10..HEAD --name-only
-# find <dir> -maxdepth 2 -newer <dir>/README.md -not -path '*/.git/*' -type f 2>/dev/null | head -20
-
-=== SECTION: EXTRA FIXED LOCATIONS ===
-python3 - << 'PYEOF'
-import os, subprocess
-
-extra_dirs = '${EXTRA_SCAN_DIRS}'.split()
-
-def read(path, lines=30):
-    try:
-        with open(path) as f: return ''.join(f.readlines()[:lines]).strip()
-    except: return ''
-
-def dir_fp(d):
-    r = subprocess.run(['git','-C',d,'rev-parse','HEAD'], capture_output=True, text=True)
-    if r.returncode == 0: return r.stdout.strip()
-    result = subprocess.run(
-        f'find {d} -maxdepth 3 -not -name ".dev-report-cache.md" -not -path "*/.git/*" -type f -printf "%T@\\n" 2>/dev/null | sort -n | tail -1',
-        shell=True, capture_output=True, text=True)
-    mt = result.stdout.strip().split('.')[0] if result.stdout.strip() else ''
-    return mt or subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
-
-for d in extra_dirs:
-    d = os.path.expanduser(d)
-    if not os.path.isdir(d): continue
-    fp = dir_fp(d)
-    cache_hdr = subprocess.run(['head','-1',f'{d}/.dev-report-cache.md'], capture_output=True, text=True).stdout.strip()
-    if fp and cache_hdr and fp in cache_hdr:
-        print(f'CACHE HIT: {d}')
-        print(subprocess.run(['cat',f'{d}/.dev-report-cache.md'], capture_output=True, text=True).stdout.strip())
-        continue
-    print(f'\n--- EXTRA: {d} ---')
-    print(f'MTIME: {subprocess.check_output(["stat","-c","%y",d]).decode().strip()}')
-    gl = subprocess.run(['git','-C',d,'log','--oneline','-10'], capture_output=True, text=True).stdout.strip()
-    if gl: print(f'GIT LOG:\n{gl}')
-    for fname in ['README.md','AGENTS.md','.forked-work']:
-        content = read(f'{d}/{fname}')
-        if content: print(f'\n{fname}:\n{content[:600]}')
-PYEOF
-
-=== SECTION: CLAUDE ACTIVITY ===
-ls ${CLAUDE_HOME}/skills/ 2>/dev/null
-ls ${CLAUDE_HOME}/hooks/ 2>/dev/null
-ls ${CLAUDE_HOME}/agents/team/ 2>/dev/null
-head -2 ${CLAUDE_HOME}/delegation-metrics.jsonl 2>/dev/null
-
-=== SECTION: INSIGHTS LOG ===
-tail -60 ${SKILL_DIR}/references/insights/insights-log.md 2>/dev/null || echo "No insights log found"
-
-=== SECTION: CODEX ACTIVITY ===
-python3 - << 'PYEOF'
-import os, subprocess, json, glob
-
-codex_home = os.path.expanduser('${CODEX_HOME}')
-cache_path = os.path.join(codex_home, '.dev-report-cache.md')
-
-# Fingerprint: mtime of sessions directory
-sessions_dir = os.path.join(codex_home, 'sessions')
-try:
-    fp = subprocess.check_output(['stat','-c','%Y', sessions_dir]).decode().strip()
-except:
-    fp = 'unknown'
-
-cache_hdr = subprocess.run(['head','-1', cache_path], capture_output=True, text=True).stdout.strip()
-if fp and cache_hdr and fp in cache_hdr:
-    print('CODEX CACHE HIT')
-    print(open(cache_path).read())
-else:
-    print(f'CODEX FINGERPRINT: {fp}')
-
-    # config.toml — model, trusted projects
-    cfg = os.path.join(codex_home, 'config.toml')
-    if os.path.exists(cfg):
-        print(f'\nCODEX CONFIG:\n{open(cfg).read()[:1000]}')
-
-    # skills
-    skills_dir = os.path.join(codex_home, 'skills')
-    if os.path.isdir(skills_dir):
-        skill_names = [d for d in os.listdir(skills_dir) if not d.startswith('.')]
-        print(f'\nCODEX SKILLS: {", ".join(sorted(skill_names))}')
-
-    # session rollup: count sessions per month, collect unique cwds, gather recent task summaries
-    if os.path.isdir(sessions_dir):
-        session_files = sorted(glob.glob(os.path.join(sessions_dir, '**', '*.jsonl'), recursive=True))
-        months = {}
-        cwds = set()
-        recent_tasks = []
-        for sf in session_files[-50:]:  # last 50 session files only to bound I/O
-            try:
-                month = sf.split('/')[-4] + '-' + sf.split('/')[-3]  # YYYY/MM -> YYYY-MM
-                months[month] = months.get(month, 0) + 1
-                with open(sf) as f:
-                    for line in f:
-                        try:
-                            obj = json.loads(line)
-                            # extract cwd from session_meta
-                            if obj.get('type') == 'session_meta':
-                                cwd = obj.get('payload', {}).get('git', {})
-                                # cwd is in environment_context messages
-                            if obj.get('type') == 'response_item':
-                                for c in obj.get('payload', {}).get('content', []):
-                                    if isinstance(c, dict) and 'environment_context' in c.get('text',''):
-                                        import re
-                                        m = re.search(r'<cwd>(.*?)</cwd>', c.get('text',''))
-                                        if m: cwds.add(m.group(1))
-                        except: pass
-            except: pass
-        print(f'\nCODEX SESSIONS BY MONTH: {dict(sorted(months.items()))}')
-        if cwds: print(f'CODEX ACTIVE CWDS: {", ".join(sorted(cwds))}')
-
-    # rules summary
-    rules_file = os.path.join(codex_home, 'rules', 'default.rules')
-    if os.path.exists(rules_file):
-        lines = open(rules_file).readlines()
-        print(f'\nCODEX RULES COUNT: {len(lines)} entries')
-PYEOF
-```
+Always wait for the subagent to finish. Phase 2 must consume only the JSON printed by this script; there are no `find`/`git` dumps anymore, just the `data` dictionary in the object above.
 
 Wait for the subagent to return all output before proceeding.
 
-### 1b. Process `.forked-work-modified` (if any found in SECTION: FORKED-WORK-MODIFIED)
+### 1b. Process `.forked-work-modified` (if any)
 
-For each directory listed, use the git log/diff/file data returned by the subagent to write a concise `.forked-work` summary (3-6 bullets) directly, then delete the `.forked-work-modified` marker. Do this yourself — it requires judgment.
+If the Phase 1 JSON payload contains entries under `data.forked_work_modified`, each record already includes the git log, diff file names, and recent files that triggered the marker. Use that structured context to write a concise (3-6 bullet) `.forked-work` note, then delete the `.forked-work-modified` file. This step still requires judgment — keep the summary upstream-crediting and limit yourself to the data the script already collected.
 
 ---
 
 ## Phase 2 — Analysis (synthesize from gathered facts only)
 
-Using only the data collected in Phase 1 (do not re-read any files), produce:
+Using only the data collected in Phase 1 (the JSON the script prints, specifically the object under the `data` key; do not re-read any files), produce:
 
 ### Organize into
 
