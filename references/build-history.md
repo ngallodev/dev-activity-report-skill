@@ -308,11 +308,64 @@ Repo created at `https://github.com/ngallodev/dev-activity-report-skill` (public
 
 ---
 
+## Milestone 9 — Warm Cache Verification & Mtime Drift Fix
+
+*Session: 2026-02-13 (continued) | Author: ngallodev + Claude Sonnet 4.5*
+
+**What happened**: Ran `/dev-activity-report` Phase 1 in isolation to verify warm-cache behavior after all projects were cached in Milestone 8.
+
+### First verification run — mtime drift bug discovered
+
+Expected: most projects cache-hit. Actual: only 5 hits (the 4 git-hash repos from before + codex home). All non-git directory caches were misses despite having just been written.
+
+**Root cause**: Writing `.dev-report-cache.md` inside a non-git directory bumps that directory's `mtime`. The Phase 3 cache write happens *after* Phase 1 records the fingerprint — so the fingerprint stored in the cache header matches the pre-write mtime. On the *next* Phase 1 run, `stat mtime` returns the post-write mtime (higher), which no longer matches the header → spurious re-scan on every run.
+
+This is a self-defeating cache: writing the cache file invalidates it immediately for all non-git directories.
+
+**Why git repos were unaffected**: Git commit hash fingerprinting is immune — writing a file doesn't change `git rev-parse HEAD` unless you commit.
+
+### Fix
+
+Changed non-git directory fingerprinting from `stat mtime` of the directory to **max mtime of content files, excluding `.dev-report-cache.md` itself**:
+
+```python
+def dir_fp(d):
+    r = subprocess.run(['git','-C',d,'rev-parse','HEAD'], capture_output=True, text=True)
+    if r.returncode == 0: return r.stdout.strip()
+    result = subprocess.run(
+        f'find {d} -maxdepth 3 -not -name ".dev-report-cache.md" -not -path "*/.git/*" '
+        f'-type f -printf "%T@\n" 2>/dev/null | sort -n | tail -1',
+        shell=True, capture_output=True, text=True)
+    mt = result.stdout.strip().split('.')[0] if result.stdout.strip() else ''
+    return mt or subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
+```
+
+Applied consistently across all three fingerprinting sites in the Phase 1 prompt (CACHE FINGERPRINTS, STALE PROJECT FACTS, EXTRA FIXED LOCATIONS). Existing cache headers for the affected projects were also updated to the corrected fingerprint values.
+
+**Edge case — empty directories**: If a directory has no files (only subdirs, or truly empty), the `find` returns nothing and we fall back to `stat mtime` on the directory itself. Acceptable — an empty directory with only a cache file is an unusual case.
+
+**Design insight**: The fingerprint and the cache file must be decoupled. Any fingerprinting scheme that includes the cache file itself in the fingerprint input creates a self-invalidating loop. The fix is to either exclude the cache file from the input (chosen here) or store the cache file outside the project directory (more invasive, rejected).
+
+### Second verification run — confirmed warm
+
+| Metric | Value |
+|---|---|
+| Wall time | 8.7 seconds |
+| Total tokens | 7,819 |
+| Tool uses | 1 |
+| Cache hits | 12 / 21 scanned projects |
+| Cache misses (expected) | 9 never-cached minor dirs + mariadb (new commit) |
+
+**7,819 tokens and 1 tool use** is the warm-scan floor. The single-Bash-call Phase 1 design is working as intended — all fingerprint checks happen inside one Python script, one tool call.
+
+The 9 permanent misses (`.claude`, `.continue`, `aitest`, `clicky`, `continue.config`, `indydevdan`, `jelly`, `research`, `s`) are minor/reference/empty directories not worth caching. They will be re-scanned each time but contribute minimal output since they have no README or git history.
+
+---
+
 ## What a Next Session Should Do
 
-- Verify warm-scan token counts now that all projects are cached (expected: ~$0.031, Phase 1 ~5k tokens with Bash agent)
-- Update `references/token-economics.md` with v3 run real numbers
 - Consider adding `--refresh` flag to force full re-scan despite valid caches
-- Consider `--since <date>` flag to scope report to a time window
+- Consider `--since <date>` flag to scope the report to a time window
 - Investigate multi-machine support (SSH or remote filesystem mounts)
 - Add the codex-job invocation path issue to known limitations in README (invoke script lives in invoke-codex-from-claude, not in installed skill)
+- Cache the 9 never-cached minor dirs or explicitly skip them with `.not-my-work` to eliminate the minor noise
