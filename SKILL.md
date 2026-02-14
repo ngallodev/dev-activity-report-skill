@@ -49,7 +49,7 @@ Prompt to send (substitute all ${VAR} values before sending):
 You are a data collection agent. Run the following bash commands exactly and return ALL output verbatim with section headers. Do not interpret, summarize, or omit anything.
 
 === SECTION: OWNERSHIP MARKERS ===
-find ${APPS_DIR} -maxdepth 2 \( -name ".not-my-work" -o -name ".forked-work" -o -name ".forked-work-modified" \) | sort
+find ${APPS_DIR} -maxdepth 2 \( -name ".not-my-work" -o -name ".forked-work" -o -name ".forked-work-modified" -o -name ".skip-for-now" \) | sort
 
 === SECTION: CACHE FINGERPRINTS ===
 python3 - << 'PYEOF'
@@ -68,8 +68,9 @@ def dir_fp(d):
     return mt or subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
 
 skip = set()
-for f in subprocess.check_output(f"find {apps_dir} -maxdepth 2 -name '.not-my-work'", shell=True, text=True).splitlines():
-    skip.add(f.replace('/.not-my-work',''))
+for marker in ['.not-my-work', '.skip-for-now']:
+    for f in subprocess.check_output(f"find {apps_dir} -maxdepth 2 -name '{marker}'", shell=True, text=True).splitlines():
+        skip.add(f.replace(f'/{marker}',''))
 for name in sorted(os.listdir(apps_dir)):
     d = f'{apps_dir}/{name}'
     if not os.path.isdir(d) or d in skip: continue
@@ -99,8 +100,9 @@ def dir_fp(d):
     return mt or subprocess.check_output(['stat','-c','%Y',d]).decode().strip()
 
 skip = set()
-for f in subprocess.check_output(f"find {apps_dir} -maxdepth 2 -name '.not-my-work'", shell=True, text=True).splitlines():
-    skip.add(f.replace('/.not-my-work',''))
+for marker in ['.not-my-work', '.skip-for-now']:
+    for f in subprocess.check_output(f"find {apps_dir} -maxdepth 2 -name '{marker}'", shell=True, text=True).splitlines():
+        skip.add(f.replace(f'/{marker}',''))
 
 for name in sorted(os.listdir(apps_dir)):
     d = f'{apps_dir}/{name}'
@@ -128,6 +130,7 @@ PYEOF
 
 === SECTION: FORKED-WORK-MODIFIED ===
 find ${APPS_DIR} -maxdepth 2 -name ".forked-work-modified" | sed 's|/.forked-work-modified||'
+# Note: .skip-for-now dirs are excluded from forked-work-modified processing too (they won't appear here since find won't descend into them from the stale facts section)
 # For each found, also run:
 # git -C <dir> log --oneline -20
 # git -C <dir> diff HEAD~10..HEAD --name-only
@@ -328,7 +331,8 @@ Save the final report to `${REPORT_OUTPUT_DIR}/${REPORT_FILENAME_PREFIX}-<YYYY-M
 
 | File | Behavior |
 |---|---|
-| `.not-my-work` | Skip entirely, do not enter directory |
+| `.not-my-work` | Skip entirely — upstream clone, no original work |
+| `.skip-for-now` | Skip entirely — parked, incomplete, or not yet worth reporting |
 | `.forked-work` | Include under "Forked & Modified"; read file for contribution notes |
 | `.forked-work-modified` | Auto-generate `.forked-work` from git history, then treat as above |
 | *(none)* | Original work |

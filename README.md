@@ -91,7 +91,8 @@ Three marker files classify project ownership without any central registry:
 
 | File | Behavior |
 |---|---|
-| `.not-my-work` | Skip entirely — pure upstream clone |
+| `.not-my-work` | Skip entirely — upstream clone, no original work |
+| `.skip-for-now` | Skip entirely — parked, incomplete, or not yet worth reporting |
 | `.forked-work` | Include under "Forked & Modified" with your contribution notes |
 | `.forked-work-modified` | Auto-generate `.forked-work` from git archaeology, then promote |
 
@@ -196,8 +197,11 @@ That's it. Claude reads your `.env`, delegates data gathering to Haiku, synthesi
 Before the first run, mark upstream clones you haven't modified so they don't appear as original work:
 
 ```bash
-# Skip entirely — pure upstream clone
+# Skip entirely — upstream clone, no original work
 touch /path/to/upstream-clone/.not-my-work
+
+# Skip for now — parked, incomplete, or not worth reporting yet
+touch /path/to/wip-project/.skip-for-now
 
 # Include as fork — write your contribution notes in the file
 echo "- Added custom logging middleware" > /path/to/fork/.forked-work
