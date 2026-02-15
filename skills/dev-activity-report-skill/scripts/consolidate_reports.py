@@ -2,21 +2,49 @@
 """
 Consolidate dev-activity-report outputs and codex test reports into a single
 deduplicated document grouped by normalized headings.
+
+Uncategorized headings are collected into an "Other" bucket rather than
+silently dropped, so no content is lost.
 """
 from __future__ import annotations
 
 import argparse
 import os
 import re
+import tarfile
+import time
 from collections import OrderedDict
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
 
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
+# Canonical section order in the output document
+SECTION_ORDER = [
+    "Resume Bullets",
+    "LinkedIn Summary",
+    "Most Resume-Worthy Items",
+    "Hiring Manager Highlights",
+    "Scan Summary",
+    "Original Work Projects",
+    "Forked & Modified Projects",
+    "Technical Problems Solved",
+    "AI-Assisted Development Workflows",
+    "Codex Activity",
+    "AI Workflow Patterns",
+    "Findings",
+    "Tech Inventory",
+    "Timeline",
+    "Other",
+]
 
-def normalize_heading(title: str) -> str | None:
+
+def normalize_heading(title: str) -> str:
+    """Map an arbitrary heading title to a canonical section name.
+
+    Unknown headings return "Other" so no content is silently discarded.
+    """
     t = title.lower()
     if "resume bullet" in t:
         return "Resume Bullets"
@@ -24,7 +52,8 @@ def normalize_heading(title: str) -> str | None:
         return "LinkedIn Summary"
     if "most resume-worthy" in t:
         return "Most Resume-Worthy Items"
-    if "hiring manager highlight" in t:
+    # "hiring manager" (space) OR "hiring-manager" (hyphen)
+    if "hiring" in t and ("manager" in t or "highlight" in t):
         return "Hiring Manager Highlights"
     if "scan summary" in t:
         return "Scan Summary"
@@ -42,14 +71,17 @@ def normalize_heading(title: str) -> str | None:
         return "AI Workflow Patterns"
     if t.strip() == "findings" or t.startswith("findings"):
         return "Findings"
+    # "tech inventory", "technology inventory", "short tech inventory"
     if "tech inventory" in t or "technology inventory" in t:
         return "Tech Inventory"
+    # "timeline", "5-row timeline", "timeline (most recent first)", etc.
     if "timeline" in t:
         return "Timeline"
-    return None
+    return "Other"
 
 
-def extract_entries(lines: Iterable[str]) -> list[str]:
+def extract_entries(lines: list[str]) -> list[str]:
+    """Parse body lines into discrete entries (bullets, paragraphs, table rows)."""
     entries: list[str] = []
     para: list[str] = []
 
@@ -62,10 +94,11 @@ def extract_entries(lines: Iterable[str]) -> list[str]:
             para = []
 
     for line in lines:
-        if not line.strip():
+        stripped = line.strip()
+        if not stripped:
             flush_para()
             continue
-        if line.strip() == "---":
+        if stripped == "---":
             flush_para()
             continue
         if line.lstrip().startswith("|"):
@@ -74,58 +107,53 @@ def extract_entries(lines: Iterable[str]) -> list[str]:
             continue
         if re.match(r"^\s*[-*+]\s+", line) or re.match(r"^\s*\d+\.\s+", line):
             flush_para()
-            entries.append(line.strip())
+            entries.append(stripped)
             continue
         if re.match(r"^\s*\*\*.*\*\*\s*$", line):
             flush_para()
-            entries.append(line.strip())
+            entries.append(stripped)
             continue
         para.append(line)
     flush_para()
     return entries
 
 
-def iter_reports(paths: list[Path]) -> list[Path]:
-    found: list[Path] = []
-    for p in paths:
-        if p.is_file():
-            found.append(p)
-        elif p.is_dir():
-            for child in p.glob("*.md"):
-                found.append(child)
-    return sorted(set(found))
+def _detect_table_header(entries: list[str]) -> list[str] | None:
+    """Return the first two table rows (header + separator) if present."""
+    table_lines = [e for e in entries if e.startswith("|")]
+    if len(table_lines) >= 2:
+        return table_lines[:2]
+    return None
 
 
-def build_sections(report_paths: list[Path]) -> tuple[OrderedDict, dict[str, list[str] | None]]:
-    section_order = [
-        "Resume Bullets",
-        "LinkedIn Summary",
-        "Most Resume-Worthy Items",
-        "Hiring Manager Highlights",
-        "Scan Summary",
-        "Original Work Projects",
-        "Forked & Modified Projects",
-        "Technical Problems Solved",
-        "AI-Assisted Development Workflows",
-        "Codex Activity",
-        "AI Workflow Patterns",
-        "Findings",
-        "Tech Inventory",
-        "Timeline",
-    ]
+def build_sections(
+    report_paths: list[Path],
+) -> tuple[OrderedDict[str, OrderedDict[str, None]], dict[str, list[str] | None]]:
     sections: OrderedDict[str, OrderedDict[str, None]] = OrderedDict(
-        (name, OrderedDict()) for name in section_order
+        (name, OrderedDict()) for name in SECTION_ORDER
     )
-    table_headers: dict[str, list[str] | None] = {name: None for name in section_order}
+    # Store one table header row-pair per section (first encountered wins)
+    table_headers: dict[str, list[str] | None] = {name: None for name in SECTION_ORDER}
 
     def add_entry(section: str, entry: str) -> None:
         sections[section][entry] = None
+
+    def flush_section(norm: str, body_lines: list[str]) -> None:
+        if not norm:
+            return
+        entries = extract_entries(body_lines)
+        if table_headers[norm] is None:
+            header = _detect_table_header(entries)
+            if header:
+                table_headers[norm] = header
+        for entry in entries:
+            add_entry(norm, entry)
 
     for path in report_paths:
         text = path.read_text()
         lines = text.splitlines()
 
-        # Collect Findings subheadings
+        # First pass: collect Findings sub-headings (children of Findings section)
         stack: list[dict[str, object]] = []
         for line in lines:
             m = HEADING_RE.match(line)
@@ -134,54 +162,40 @@ def build_sections(report_paths: list[Path]) -> tuple[OrderedDict, dict[str, lis
             level = len(m.group(1))
             title = m.group(2).strip()
             norm = normalize_heading(title)
-            while stack and stack[-1]["level"] >= level:
+            while stack and stack[-1]["level"] >= level:  # type: ignore[operator]
                 stack.pop()
             parent_norm = stack[-1]["norm"] if stack else None
             stack.append({"level": level, "title": title, "norm": norm})
-            if norm is None and parent_norm == "Findings":
+            # Sub-headings inside Findings become bold labels in that section
+            if norm == "Other" and parent_norm == "Findings":
                 add_entry("Findings", f"**{title}**")
 
-        # Parse section bodies
-        current_norm = None
+        # Second pass: parse section bodies
+        current_norm: str = ""
         current_lines: list[str] = []
         for line in lines:
             m = HEADING_RE.match(line)
             if m:
-                if current_norm:
-                    entries = extract_entries(current_lines)
-                    for entry in entries:
-                        if entry.startswith("|") and table_headers[current_norm] is None:
-                            table_lines = [e for e in entries if e.startswith("|")]
-                            if len(table_lines) >= 2:
-                                table_headers[current_norm] = table_lines[:2]
-                        add_entry(current_norm, entry)
+                flush_section(current_norm, current_lines)
                 title = m.group(2).strip()
                 current_norm = normalize_heading(title)
                 current_lines = []
-                continue
-            if current_norm:
+            elif current_norm:
                 current_lines.append(line)
-        if current_norm:
-            entries = extract_entries(current_lines)
-            for entry in entries:
-                if entry.startswith("|") and table_headers[current_norm] is None:
-                    table_lines = [e for e in entries if e.startswith("|")]
-                    if len(table_lines) >= 2:
-                        table_headers[current_norm] = table_lines[:2]
-                add_entry(current_norm, entry)
+        flush_section(current_norm, current_lines)
 
-    # Clean: remove headers/separators and keep only unique entries
+    # Remove table separator rows and duplicate header rows from entries
     for sec_name in sections:
+        header_set = set(table_headers.get(sec_name) or [])
         cleaned: OrderedDict[str, None] = OrderedDict()
-        header = table_headers.get(sec_name) or []
-        header_set = set(header)
-        for entry in sections[sec_name].keys():
+        for entry in sections[sec_name]:
             if entry.strip() == "---":
                 continue
             if entry.startswith("|"):
                 if entry in header_set:
                     continue
-                if re.match(r"^\|\s*[-: ]+\|?$", entry.strip()):
+                # Pure separator row like |---|---|
+                if re.match(r"^\|\s*[-: |]+\s*\|?\s*$", entry):
                     continue
             cleaned[entry] = None
         sections[sec_name] = cleaned
@@ -191,44 +205,60 @@ def build_sections(report_paths: list[Path]) -> tuple[OrderedDict, dict[str, lis
 
 def write_output(
     output_path: Path,
-    sections: OrderedDict,
+    sections: OrderedDict[str, OrderedDict[str, None]],
     table_headers: dict[str, list[str] | None],
     title: str,
+    source_count: int,
 ) -> None:
     with output_path.open("w") as f:
         f.write(f"# {title}\n\n")
         f.write(
-            "This document consolidates unique entries across all dev-activity-report outputs "
-            "and codex test reports found in the workspace.\n\n"
+            f"Consolidated from {source_count} report(s). "
+            "Unique entries deduplicated and grouped by section.\n\n"
         )
         for sec_name, entries in sections.items():
             if not entries:
                 continue
             f.write(f"## {sec_name}\n\n")
             header = table_headers.get(sec_name)
-            has_table = any(e.startswith("|") for e in entries.keys())
+            has_table = any(e.startswith("|") for e in entries)
             if has_table and header:
                 f.write(header[0] + "\n")
                 f.write(header[1] + "\n")
-            for entry in entries.keys():
+            for entry in entries:
                 if entry.startswith("|"):
                     f.write(f"{entry}\n")
-                    continue
-                if re.match(r"^\s*[-*+]\s+", entry) or re.match(r"^\s*\d+\.\s+", entry):
+                elif re.match(r"^\s*[-*+]\s+", entry) or re.match(r"^\s*\d+\.\s+", entry):
                     f.write(f"{entry}\n")
-                    continue
-                if entry.startswith("**") and entry.endswith("**"):
+                elif entry.startswith("**") and entry.endswith("**"):
                     f.write(f"{entry}\n")
-                    continue
-                f.write(f"{entry}\n\n")
+                else:
+                    f.write(f"{entry}\n\n")
             f.write("\n")
+
+
+def collect_report_paths(
+    test_root: Path,
+    report_root: Path,
+    test_glob: str,
+    report_glob: str,
+    output_path: Path,
+) -> list[Path]:
+    paths: list[Path] = []
+    if test_root.exists():
+        paths.extend(sorted(test_root.glob(test_glob)))
+    if report_root.exists():
+        paths.extend(sorted(report_root.glob(report_glob)))
+    # Exclude the output file itself if it happens to match a glob
+    resolved_output = output_path.resolve()
+    return [p for p in dict.fromkeys(paths) if p.resolve() != resolved_output]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Consolidate dev-activity-report outputs.")
     parser.add_argument(
         "--test-report-root",
-        default=os.environ.get("DAR_TEST_REPORT_ROOT", "/lump/apps/dev-activity-report-skill"),
+        default=os.environ.get("DAR_TEST_REPORT_ROOT", ""),
         help="Directory containing codex-test-report-*.md files.",
     )
     parser.add_argument(
@@ -261,23 +291,40 @@ def main() -> int:
     )
 
     args = parser.parse_args()
-    test_root = Path(os.path.expanduser(args.test_report_root))
-    report_root = Path(os.path.expanduser(args.report_root))
     output_path = Path(os.path.expanduser(args.output))
+    test_root = Path(os.path.expanduser(args.test_report_root)) if args.test_report_root else Path("/nonexistent")
+    report_root = Path(os.path.expanduser(args.report_root))
 
-    report_paths = []
-    if test_root.exists():
-        report_paths.extend(sorted(test_root.glob(args.test_report_glob)))
-    if report_root.exists():
-        report_paths.extend(sorted(report_root.glob(args.report_glob)))
+    t0 = time.monotonic()
+    report_paths = collect_report_paths(
+        test_root, report_root, args.test_report_glob, args.report_glob, output_path
+    )
 
     if not report_paths:
         raise SystemExit("No reports found to consolidate.")
 
     sections, table_headers = build_sections(report_paths)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    write_output(output_path, sections, table_headers, args.title)
+    write_output(output_path, sections, table_headers, args.title, len(report_paths))
+    elapsed = time.monotonic() - t0
+
+    total_entries = sum(len(v) for v in sections.values())
+    nonempty = sum(1 for v in sections.values() if v)
     print(output_path)
+    print(
+        f"  {len(report_paths)} reports · {nonempty} sections · {total_entries} entries · {elapsed:.2f}s",
+        flush=True,
+    )
+
+    # Archive source reports into a timestamped tar.gz alongside the output file
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stem = output_path.stem  # e.g. "dev-activity-report-aggregate"
+    archive_path = output_path.parent / f"{stem}-consolidated-{ts}.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as tar:
+        for p in report_paths:
+            tar.add(p, arcname=p.name)
+    print(f"  archived → {archive_path}", flush=True)
+
     return 0
 
 
