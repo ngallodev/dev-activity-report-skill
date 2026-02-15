@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 1 data collector — token-optimized, compact payload emitter."""
+"""Phase 1 data collector — compact payload + content-hash fingerprinting."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CACHE_FILE = SKILL_DIR / ".phase1-cache.json"
-INSIGHTS_LOG = SKILL_DIR / "references" / "insights" / "insights-log.md"
+INSIGHTS_LOG = SKILL_DIR / "references" / "examples" / "insights" / "insights-log.md"
 
 DEFAULTS: dict[str, str] = {
     "APPS_DIR": "/lump/apps",
@@ -37,13 +37,6 @@ DEFAULTS: dict[str, str] = {
     "PHASE3_MODEL": "gpt-5.1-codex-mini",
     "ALLOWED_FILE_EXTS": ".py,.ts,.js,.tsx,.cs,.csproj,.md,.txt,.json,.toml,.yaml,.yml,.sql,.html,.css,.sh",
     "INSIGHTS_REPORT_PATH": "~/.claude/usage-data/report.html",
-    "TOKEN_LOG_PATH": "token_economics.log",
-    "BUILD_LOG_PATH": "build.log",
-    # Pricing is $ per 1M tokens
-    "PRICE_PHASE15_IN": "0.80",
-    "PRICE_PHASE15_OUT": "4.00",
-    "PRICE_PHASE2_IN": "3.00",
-    "PRICE_PHASE2_OUT": "15.00",
 }
 
 MARKERS = [".not-my-work", ".skip-for-now", ".forked-work", ".forked-work-modified"]
@@ -52,7 +45,6 @@ MAX_INSIGHTS_LINES = 24
 MAX_CHANGED_FILES = 10
 MAX_COMMIT_MESSAGES = 6
 MAX_KEY_FILES = 6
-MAX_CODEX_FILES = 5
 MAX_ACTIVE_CWDS = 20
 
 
@@ -77,8 +69,11 @@ def expand_path(val: str) -> Path:
 
 
 def parse_exts(raw: str) -> set[str]:
-    return {e.strip().lower() if e.strip().startswith(".") else f".{e.strip().lower()}"
-            for e in raw.split(",") if e.strip()}
+    return {
+        e.strip().lower() if e.strip().startswith(".") else f".{e.strip().lower()}"
+        for e in raw.split(",")
+        if e.strip()
+    }
 
 
 def parse_paths(raw: str) -> list[Path]:
@@ -428,12 +423,9 @@ def list_dir(path: Path, limit: int = 20) -> list[str]:
 def collect_claude_activity(claude_home: Path, allowed_exts: set[str]) -> tuple[dict[str, object], dict[str, object]]:
     summary: dict[str, object] = {}
     meta: dict[str, object] = {}
-    skills_list = list_dir(claude_home / "skills", limit=20)
-    hooks_list = list_dir(claude_home / "hooks", limit=20)
-    teams_list = list_dir(claude_home / "agents" / "team", limit=10)
-    summary["sk"] = skills_list
-    summary["hk"] = hooks_list
-    summary["ag"] = teams_list
+    summary["sk"] = list_dir(claude_home / "skills", limit=20)
+    summary["hk"] = list_dir(claude_home / "hooks", limit=20)
+    summary["ag"] = list_dir(claude_home / "agents" / "team", limit=10)
     metrics = claude_home / "delegation-metrics.jsonl"
     meta["fp"] = hash_non_git_dir(claude_home, allowed_exts, max_depth=2)
     meta["metrics_head"] = tail_lines(metrics, limit=2)
@@ -485,7 +477,7 @@ def compute_fingerprint_source(
     projects: list[dict[str, object]],
     markers: list[dict[str, str]],
     extra_summaries: list[dict[str, object]],
-    claude_meta: dict[str, str],
+    claude_meta: dict[str, object],
     codex_meta: dict[str, object],
     insights_fp: str,
 ) -> dict[str, object]:

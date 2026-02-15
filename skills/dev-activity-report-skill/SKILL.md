@@ -13,7 +13,13 @@ Docs: compact key map in `docs/PAYLOAD_REFERENCE.md`.
 
 ## Configuration (.env)
 
-Load `.env` from the skill root. Copy `.env.example` if missing.
+Load `.env` from the skill root. Copy `references/examples/.env.example` if missing.
+
+To configure with agent assistance, run:
+```
+scripts/setup_env.py
+```
+This copies the example if needed, attempts auto-fill from environment, and prompts for key paths and models. Background runs use non-interactive setup; if required values are still missing, the run fails with a clear message.
 
 | Key | Default | Notes |
 |---|---|---|
@@ -40,7 +46,7 @@ Load `.env` from the skill root. Copy `.env.example` if missing.
 
 ## Phase 0 — optional insights snapshot
 
-Check `INSIGHTS_REPORT_PATH`. If missing, warn and continue. If present, fold into `references/insights/insights-log.md` (best-effort; skip if parsing fails).
+Check `INSIGHTS_REPORT_PATH`. If missing, warn and continue. If present, fold into `references/examples/insights/insights-log.md` (best-effort; skip if parsing fails).
 
 ---
 
@@ -70,6 +76,20 @@ python3 scripts/phase1_5_draft.py --input phase1.json > phase1_5.json
 The script sends a concise prompt to `${PHASE15_MODEL}` (env-configurable) to create a rough bullet draft; falls back to a deterministic heuristic if no API key. Token usage is appended to `TOKEN_LOG_PATH` and `BUILD_LOG_PATH` when credentials exist.
 
 Output JSON: `{"draft": "<text>", "usage": {...}, "cost": <float|null>}`
+
+---
+
+## Run Mode (default background)
+
+By default, this skill runs **in the background** with no terminal output and no permission prompts. On completion, send a **terminal-notifier** notification stating the report path. Foreground output is only shown when explicitly requested.
+
+Use the runner (models read from `.env`):
+```
+scripts/run_report.sh          # background, silent, notify on completion
+scripts/run_report.sh --foreground
+```
+
+The runner uses `codex exec` with `--approval never --sandbox workspace-write` to avoid interactive permission prompts. If the user requests foreground execution, run the same code path but stream output.
 
 ---
 

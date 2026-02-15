@@ -125,7 +125,7 @@ Phase 1 emits abbreviated JSON keys (documented in `docs/PAYLOAD_REFERENCE.md`) 
 Scans `~/.codex/sessions/` to surface Codex usage patterns — sessions by month, active project directories, installed skills, configured model — and includes them in the report and cache.
 
 ### Configurable via `.env`
-All user-specific values (paths, identity, models) live in a `.env` file that's gitignored. The repo ships `.env.example` — copy and fill in once, never touch again.
+All user-specific values (paths, identity, models) live in a `.env` file that's gitignored. The repo ships `references/examples/.env.example` — copy and fill in once, never touch again.
 
 ---
 
@@ -167,7 +167,7 @@ Copy `SKILL.md` and the `references/` directory to `~/.claude/skills/dev-activit
 ### Configure
 
 ```bash
-cp ~/.claude/skills/dev-activity-report/.env.example \
+cp ~/.claude/skills/dev-activity-report/references/examples/.env.example \
    ~/.claude/skills/dev-activity-report/.env
 ```
 
@@ -240,7 +240,7 @@ Once projects are cached, re-running the skill only re-analyzes projects with ne
 ```
 dev-activity-report-skill/
 ├── SKILL.md                          # Core skill instructions
-├── .env.example                      # Config template (copy to .env)
+├── references/examples/.env.example  # Config template (copy to .env)
 ├── .gitignore                        # Ignores .env
 └── references/
     ├── token-economics.md            # Cost benchmarks and real test results

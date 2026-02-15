@@ -479,3 +479,69 @@ Total: ~72.8k tokens (~$0.18 at Codex mini/Codex rates). Log files (`codex-phase
   - `codex-test-report-20260215T011345Z.md` (deterministic stub report)
 
 **Notes**: Phase 2 polish still needs a real model to replace the stub; token logging will populate once API usage is enabled. Deprecation warnings from Python `utcnow()` surfaced during the stub run; harmless but can be modernized later.
+
+---
+
+## Milestone 15 — Structure realignment + Codex harness update
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Realigned the repository to the updated `AGENTS.md` structure. Root scripts and references were removed; all scripts now live under `skills/dev-activity-report-skill/scripts/`, and references under `skills/dev-activity-report-skill/references/` with examples housed in `references/examples/`. `build-history.md` remains at repo root, and token economics logs live under `references/examples/`.
+
+**Notable updates**:
+- Moved `phase1_runner.py` and the Codex harness into `skills/dev-activity-report-skill/scripts/` (harness now in `scripts/testing/`).
+- Updated harness paths to read/write the skill-local `.phase1-cache.json` and consume compact payload keys.
+- Updated `SKILL.md` and `README.md` references to `references/examples/.env.example` and the new insights log location.
+
+**Benchmark attempt**:
+- Attempted live Codex run via `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh`.
+- Phase 1 failed due to Codex backend stream disconnect (`https://chatgpt.com/backend-api/codex/responses`), rollout recorder channel closed. No report produced.
+
+**Retry**:
+- Re-ran the same harness on 2026-02-15; Phase 1 failed again with identical stream disconnect/rollout recorder errors. No report produced.
+
+---
+
+## Milestone 16 — Codex test report (successful run)
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Ran `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh` with Phase 1 + 1.5 on `gpt-5.1-codex-mini` and Phase 2 on `gpt-5.3-codex`. Report saved to `codex-test-report-20260215T022940Z.md` with Phase 1/3 logs in `codex-phase1-20260215T022940Z.log` and `codex-phase3-20260215T022940Z.log`.
+
+**Benchmark notes**:
+- Phase 1 succeeded (cache hit). The runner output is still the legacy JSON shape (not the compact key schema), so Phase 3’s `fp` readout was `None`. Per-project cache headers were still reported.
+- Phase 2 completed and saved the report. Token usage counts were shown in the Codex CLI output (Phase 2: 6,417 tokens; Phase 3: 5,435 tokens), but these counts were not captured in the log files.
+
+---
+
+## Milestone 17 — Compact Phase 1 payload restored + background runner
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Replaced the legacy Phase 1 script with the compact payload version and added a background-first runner. The runner uses `codex exec --approval never --sandbox workspace-write` for all phases, defaults to background execution with a completion notification, and supports foreground output on request.
+
+**Artifacts**:
+- `skills/dev-activity-report-skill/scripts/phase1_runner.py` (compact payload + content hashes)
+- `skills/dev-activity-report-skill/scripts/run_report.sh` (background runner + notify)
+
+**Notes**: `terminal-notifier` is used when available; fallback to `notify-send` with install attempt via `apt-get` if missing; otherwise fail with a clear error.
+
+---
+
+## Milestone 18 — Codex test report (compact payload run)
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Re-ran `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh` after restoring the compact Phase 1 payload. Phase 1/1.5 used `gpt-5.1-codex-mini`, Phase 2 used `gpt-5.3-codex`, and Phase 3 used `gpt-5.1-codex-mini`.
+
+**Artifacts**:
+- `codex-test-report-20260215T025110Z.md`
+- `codex-phase1-20260215T025110Z.log`
+- `codex-phase3-20260215T025110Z.log`
+- `codex-phase1_5-last-message.txt`
+- `codex-phase2-last-message.txt`
+
+**Benchmark notes**:
+- Phase 1 emitted compact JSON (`fp` present) and cached it to `.phase1-cache.json`.
+- Phase 3 reported per-project cache headers and a non-null phase1 fingerprint.
+- Token counts were visible in CLI output but not persisted in log files.
