@@ -157,8 +157,6 @@ if [[ $? -eq 2 ]]; then
   echo "Either run from a workspace that contains those paths or set REPORT_SANDBOX to a more permissive mode." >&2
   exit 1
 fi
-  true
-fi
 
 echo "== Phase 1 ($PHASE1_MODEL): data gathering =="
 "$CODEX_BIN" exec -m "$PHASE1_MODEL" --approval never --sandbox "$REPORT_SANDBOX" - <<EOF
