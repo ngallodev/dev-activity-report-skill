@@ -21,15 +21,14 @@ A Claude Code skill that scans your local development environment — git repos,
 
 ## What It Does
 
-`/dev-activity-report` runs a three-phase pipeline:
+`/dev-activity-report` now runs a four-step, token-thrifty pipeline:
 
-1. **Phase 1 — Data gathering** (delegated to Claude Haiku): `phase1_runner.py` (invoked through a `haiku` Bash subagent) scans all configured directories, builds a structured JSON payload, caches it in `.phase1-cache.json`, and prints it. The next run recomputes an aggregated fingerprint, and if nothing changed the same JSON is re-emitted without touching the filesystem, so Phase 1 only runs when there is fresh data.
+1. **Phase 1 — Data gathering** (`phase1_runner.py` via Bash subagent, `${PHASE1_MODEL}`): scans the configured paths, computes content-based fingerprints (git-tracked files only), and emits a **compact JSON payload** (abbreviated keys documented in `docs/PAYLOAD_REFERENCE.md`). Cached runs short-circuit by re-emitting the previous payload.
+2. **Phase 1.5 — Draft synthesis** (`phase1_5_draft.py`, `${PHASE15_MODEL}`): cheap model creates a rough bullet draft from the Phase 1 JSON. Falls back to a deterministic heuristic if no API key.
+3. **Phase 2 — Polish** (`${PHASE2_MODEL}`): single-shot prompt that ingests the compact JSON + draft and produces the final report with fixed headings (Overview, Key Changes, Recommendations, Resume Bullets, LinkedIn, Highlights, Timeline, Tech Inventory). No raw git logs are ever loaded.
+4. **Phase 3 — Cache writes** (`${PHASE3_MODEL}`): writes per-project `.dev-report-cache.md` files using the new content-hash fingerprints to keep future scans warm.
 
-2. **Phase 2 — Synthesis** (Claude Sonnet): Produces the full report from Haiku's compact output only — no re-reading files. Generates resume bullets, a LinkedIn paragraph, tech inventory, timeline, and hiring manager highlights.
-
-3. **Phase 3 — Cache writes** (delegated to Codex mini): Writes per-project `.dev-report-cache.md` files deterministically so future scans skip unchanged projects.
-
-**Result:** A dated `.md` file at `~/dev-activity-report-YYYY-MM-DD.md`.
+**Result:** A dated `.md` file at `~/dev-activity-report-YYYY-MM-DD.md` plus token_economics/build logs capturing Phase 1.5 + Phase 2 usage.
 
 ---
 
@@ -79,6 +78,8 @@ Real measurements from a ~55-project environment (21 `.not-my-work`, 9 `.skip-fo
 
 **~65% total cost savings** from delegating off Sonnet. The warm Phase 1 is effectively free at Haiku rates — Phase 2 Sonnet synthesis (~$0.025) is the irreducible cost floor regardless of caching.
 
+Token logging is now automated: Phase 1.5 and Phase 2 append JSON lines to `token_economics.log` and summary lines to `build.log` via `scripts/token_logger.py`.
+
 The `.skip-for-now` marker had a meaningful impact on its own: dropping 9 directories reduced Phase 1 from 18,304 tokens (~$0.024) to 8,233 (~$0.010) — a 55% reduction in data-gathering cost, independent of caching.
 
 The new Phase 1 fingerprint cache takes things further: once `phase1_runner.py` has built a JSON payload, reruns with the same fingerprint simply reprint that payload and never re-run the Haiku scan, so the marginal cost becomes Phase 2 only.
@@ -112,10 +113,13 @@ Each scanned project gets a `.dev-report-cache.md` with a fingerprint header:
 **Summary**: ...
 ```
 
-On subsequent scans, if the fingerprint matches, the cached analysis is used verbatim. Git repos use commit hash (precise); non-git directories use directory mtime (conservative).
+Fingerprints are now **content hashes of git-tracked files** (non-git directories hash only allowed extensions from `ALLOWED_FILE_EXTS`), eliminating false positives from mtimes or cache file writes. When the fingerprint matches, the cached analysis is used verbatim.
 
 ### Phase 1 fingerprint cache
 `phase1_runner.py` also builds a global fingerprint across ownership markers, project directories, extras, Claude data, Codex sessions, and the insights log. The fingerprint and the structured JSON payload are stored in `.phase1-cache.json`; if a rerun finds no changes it simply reprints that JSON (Haiku never re-traverses the tree). The upshot: warm runs emit exactly one JSON object and trimming Phase 1 output costs almost nothing.
+
+### Compact payload + cheap draft
+Phase 1 emits abbreviated JSON keys (documented in `docs/PAYLOAD_REFERENCE.md`) with only the essentials: commit counts, shortstats, changed files, and derived themes. Phase 1.5 uses a low-cost model to turn that JSON into a rough draft, which Phase 2 simply polishes — minimizing Sonnet tokens.
 
 ### Codex session analytics
 Scans `~/.codex/sessions/` to surface Codex usage patterns — sessions by month, active project directories, installed skills, configured model — and includes them in the report and cache.
@@ -167,7 +171,7 @@ cp ~/.claude/skills/dev-activity-report/.env.example \
    ~/.claude/skills/dev-activity-report/.env
 ```
 
-Edit `.env` with your values:
+Edit `.env` with your values (all tunables live here):
 
 ```bash
 # Where your projects live
@@ -179,9 +183,14 @@ EXTRA_SCAN_DIRS=/usr/local/lib/mydb
 # Your name/company for the resume header
 RESUME_HEADER=Jane Smith Consulting, Jan 2024 – Present
 
-# Where to write the report
-REPORT_OUTPUT_DIR=~
-REPORT_FILENAME_PREFIX=dev-activity-report
+# Optional: adjust hashing + model picks
+ALLOWED_FILE_EXTS=".py,.ts,.js,.tsx,.cs,.csproj,.md,.txt,.json,.toml,.yaml,.yml,.sql,.html,.css,.sh"
+PHASE1_MODEL=haiku
+PHASE15_MODEL=haiku
+PHASE2_MODEL=sonnet
+PHASE3_MODEL=gpt-5.1-codex-mini
+TOKEN_LOG_PATH=token_economics.log
+BUILD_LOG_PATH=build.log
 ```
 
 The Codex/Claude paths and model selections can stay at their defaults unless your setup differs.
