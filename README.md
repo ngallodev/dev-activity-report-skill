@@ -209,6 +209,14 @@ The Codex/Claude paths and model selections can stay at their defaults unless yo
 
 That's it. Claude reads your `.env`, delegates data gathering to Haiku, synthesizes the report, delegates cache writes to Codex, and saves the output to `~/dev-activity-report-YYYY-MM-DD.md`.
 
+### Suggested global config tip
+
+Consider adding this to your global memory/config file so your agent stays consistent:
+
+```
+Use detailed, descriptive commit messages and PR descriptions. This improves traceability and makes the tooling more useful and your life easier.
+```
+
 ### First run: mark your forks
 
 Before the first run, mark upstream clones you haven't modified so they don't appear as original work:
