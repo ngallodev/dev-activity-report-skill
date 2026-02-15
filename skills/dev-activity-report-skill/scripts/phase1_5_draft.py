@@ -56,9 +56,10 @@ def call_model(prompt: str, env: dict[str, str], summary: Dict[str, Any]) -> tup
     model = env.get("PHASE15_MODEL") or "haiku"
     base = env.get("PHASE15_API_BASE") or env.get("OPENAI_API_BASE")
     api_key = env.get("PHASE15_API_KEY") or env.get("OPENAI_API_KEY")
+    subscription_mode = env.get("SUBSCRIPTION_MODE", "false").lower() == "true"
 
-    if OpenAI and api_key:
-        client = OpenAI(api_key=api_key, base_url=base) if base else OpenAI(api_key=api_key)
+    if OpenAI and (api_key or subscription_mode):
+        client = OpenAI(api_key=api_key or None, base_url=base) if base else OpenAI(api_key=api_key or None)
         resp = client.chat.completions.create(
             model=model,
             messages=[{"role": "system", "content": "Draft concise dev activity bullets."},
