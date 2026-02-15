@@ -639,3 +639,23 @@ Total: ~72.8k tokens (~$0.18 at Codex mini/Codex rates). Log files (`codex-phase
 - Result: failed
 - Errors: rollout recorder channel closed; stream disconnected before completion; failed to shutdown rollout recorder
 - No report artifacts produced.
+
+---
+
+## Milestone 24 — Test run (successful full pipeline)
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Re-ran `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh` under full permissions. All phases completed successfully.
+
+**Benchmark notes**:
+- Command: `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh`
+- Result: success
+- Phase 1 tokens: 15,611
+- Phase 1.5 tokens: 7,863
+- Phase 2 tokens: 11,433
+- Phase 3 tokens: 1,711
+
+**Artifacts**:
+- `codex-test-report-20260215T045308Z.md`
+- `codex-phase3-20260215T045308Z.log`
