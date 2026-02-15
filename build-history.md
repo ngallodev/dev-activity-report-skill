@@ -659,3 +659,34 @@ Total: ~72.8k tokens (~$0.18 at Codex mini/Codex rates). Log files (`codex-phase
 **Artifacts**:
 - `codex-test-report-20260215T045308Z.md`
 - `codex-phase3-20260215T045308Z.log`
+
+---
+
+## Milestone 25 — Report consolidation script
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Added a consolidation script to merge all `dev-activity-report-*.md` outputs and `codex-test-report-*.md` test reports into a single de-duplicated document grouped by normalized headings. Documented the script usage and templated path configuration in README.
+
+**Artifacts**:
+- `skills/dev-activity-report-skill/scripts/consolidate_reports.py`
+
+**README updates**:
+- Added usage example and environment-variable overrides for report roots, globs, output path, and title.
+
+**Benchmarks**:
+- Not run. Script-only addition.
+
+---
+
+## Milestone 26 — Consolidation env defaults
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Added consolidation environment variable defaults to `references/examples/.env.example` so the same `.env` file can drive report aggregation.
+
+**Artifacts**:
+- `skills/dev-activity-report-skill/references/examples/.env.example`
+
+**Benchmarks**:
+- Not run. Config-only change.
