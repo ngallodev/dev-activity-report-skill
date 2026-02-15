@@ -50,4 +50,6 @@ In all actions and changes:
      -in these phases you should use the best model for the job - smart, creative, and thoughtful.
 
 update and document build-history.md with the latest changes, be descriptive.
-benchmark your changes, and benchmark any test runs.  make sure benchmarks are tracked in the appropriate place.
+benchmark your changes, and benchmark any test runs.  make sure benchmarks are tracked in the appropriate place.keep
+ 
+make all commit messages and PR descriptions detailed, descriptive, and meaningful. This is very important, critical to the function of this script.
