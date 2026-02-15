@@ -544,4 +544,29 @@ Total: ~72.8k tokens (~$0.18 at Codex mini/Codex rates). Log files (`codex-phase
 **Benchmark notes**:
 - Phase 1 emitted compact JSON (`fp` present) and cached it to `.phase1-cache.json`.
 - Phase 3 reported per-project cache headers and a non-null phase1 fingerprint.
+
+---
+
+## Milestone 19 — Remove hardcoded paths from `run_report.sh` (PLAN.md TODO #4 & #5)
+
+*Session: 2026-02-14 | Author: ngallodev + Claude Sonnet 4.5*
+
+**Problem**: `run_report.sh` had two issues flagged in the PR #2 review:
+1. `ROOT_DIR`, `SKILL_DIR`, and `CODEX_BIN` were all hardcoded to `/lump/apps/...` and `/home/nate/.nvm/...`, making the script break when the skill is installed to `~/.claude/skills/`.
+2. The `notify_done` fallback ran `sudo apt-get update && apt-get install -y libnotify-bin` silently, which is surprising and requires elevated privileges.
+
+**Solution**:
+
+### TODO #4 — Path derivation
+- `SKILL_DIR` now derived from `$0`: `$(cd "$(dirname "$0")/.." && pwd)` — works correctly whether the script lives in `/lump/apps/`, `~/.claude/skills/`, or anywhere else.
+- `CODEX_BIN` now uses `command -v codex` with a clean error if not found on PATH. The `.nvm`-specific path is gone.
+- Output files (`LOG_FILE`, `PHASE15_OUT`, `PHASE2_OUT`, `REPORT_OUT`) now use `OUTPUT_DIR` derived from `REPORT_OUTPUT_DIR` in `.env`, falling back to `$HOME`. A leading `~` in the env value is expanded correctly.
+- All hardcoded `/lump/apps/...` paths inside heredocs (phases 1, 1.5, 2, 3) replaced with `$SKILL_DIR`/`$PHASE15_OUT` shell variables. Heredoc delimiters switched from `'EOF'` (no expansion) to `EOF` (expansion) where needed.
+
+### TODO #5 — Silent sudo removed from `notify_done`
+- Removed the `sudo apt-get update && apt-get install -y libnotify-bin` block entirely.
+- Replaced with a two-line stderr message: one line shows the notification message, one line provides install hints for both Linux and macOS.
+- The function no longer `exit 1` on notification failure — the report has already been written; a missing notification tool is not a fatal error.
+
+**Files changed**: `skills/dev-activity-report-skill/scripts/run_report.sh`
 - Token counts were visible in CLI output but not persisted in log files.
