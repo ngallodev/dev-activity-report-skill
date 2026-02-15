@@ -5,9 +5,7 @@ set -euo pipefail
 # Default: background run with no terminal output; sends notification on completion.
 # Foreground: pass --foreground to stream output.
 
-ROOT_DIR="/lump/apps/dev-activity-report-skill"
-SKILL_DIR="$ROOT_DIR/skills/dev-activity-report-skill"
-CODEX_BIN="/home/nate/.nvm/versions/node/v22.19.0/bin/codex"
+SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 ENV_FILE="$SKILL_DIR/.env"
 if [[ -f "$ENV_FILE" ]]; then
@@ -26,12 +24,11 @@ PHASE1_MODEL="${PHASE1_MODEL:-haiku}"
 PHASE15_MODEL="${PHASE15_MODEL:-$PHASE1_MODEL}"
 PHASE2_MODEL="${PHASE2_MODEL:-sonnet}"
 PHASE3_MODEL="${PHASE3_MODEL:-haiku}"
+REPORT_SANDBOX="${REPORT_SANDBOX:-workspace-write}"
 
-TS="$(date -u +%Y%m%dT%H%M%SZ)"
-LOG_FILE="$ROOT_DIR/codex-run-$TS.log"
-PHASE15_OUT="$ROOT_DIR/codex-phase1_5-last-message.txt"
-PHASE2_OUT="$ROOT_DIR/codex-phase2-last-message.txt"
-REPORT_OUT="$ROOT_DIR/codex-test-report-$TS.md"
+# Output directory: prefer REPORT_OUTPUT_DIR from .env, fall back to $HOME.
+OUTPUT_DIR="${REPORT_OUTPUT_DIR:-$HOME}"
+OUTPUT_DIR="${OUTPUT_DIR/#\~/$HOME}"  # expand leading ~ if literal
 
 function notify_done () {
   local message="$1"
@@ -44,18 +41,27 @@ function notify_done () {
     return
   fi
 
-  # Attempt install if not present (Linux-only).
-  if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update -y && sudo apt-get install -y libnotify-bin
-    if command -v notify-send >/dev/null 2>&1; then
-      notify-send "dev-activity-report" "$message" >/dev/null 2>&1 || true
-      return
-    fi
-  fi
-
-  echo "Notification failed: terminal-notifier or notify-send not available." >&2
-  exit 1
+  # No notification tool found; print a hint and continue without hard-failing.
+  echo "dev-activity-report: $message" >&2
+  echo "(Install libnotify-bin (Linux: sudo apt-get install libnotify-bin) or terminal-notifier (macOS: brew install terminal-notifier) for desktop notifications.)" >&2
 }
+
+if [[ ! -d "$OUTPUT_DIR" ]]; then
+  echo "Output directory does not exist: $OUTPUT_DIR" >&2
+  echo "Create it or set REPORT_OUTPUT_DIR to an existing directory in .env." >&2
+  exit 1
+fi
+if [[ ! -w "$OUTPUT_DIR" ]]; then
+  echo "Output directory is not writable: $OUTPUT_DIR" >&2
+  echo "Choose a writable REPORT_OUTPUT_DIR in .env." >&2
+  exit 1
+fi
+
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
+LOG_FILE="$OUTPUT_DIR/codex-run-$TS.log"
+PHASE15_OUT="$OUTPUT_DIR/codex-phase1_5-last-message.txt"
+PHASE2_OUT="$OUTPUT_DIR/codex-phase2-last-message.txt"
+REPORT_OUT="$OUTPUT_DIR/codex-test-report-$TS.md"
 
 FOREGROUND=false
 if [[ "${1:-}" == "--foreground" ]]; then
@@ -67,8 +73,9 @@ if [[ "$FOREGROUND" == "false" ]]; then
   exit 0
 fi
 
-if [[ ! -x "$CODEX_BIN" ]]; then
-  echo "codex binary not found at $CODEX_BIN" >&2
+CODEX_BIN="${CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
+if [[ -z "$CODEX_BIN" ]]; then
+  echo "codex binary not found on PATH. Install it and ensure it is executable." >&2
   exit 1
 fi
 
@@ -98,20 +105,73 @@ fi
 
 require_env
 
+WORKSPACE_DIR="$(pwd -P)"
+python3 - "$WORKSPACE_DIR" "$APPS_DIR" "$EXTRA_SCAN_DIRS" "$OUTPUT_DIR" "$PHASE1_MODEL" "$PHASE15_MODEL" "$PHASE2_MODEL" "$PHASE3_MODEL" "$REPORT_SANDBOX" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+workspace = Path(sys.argv[1]).resolve()
+apps_dir = sys.argv[2]
+extra_dirs_raw = sys.argv[3]
+output_dir = sys.argv[4]
+models = sys.argv[5:9]
+sandbox = sys.argv[9]
+
+def is_claude_model(name: str) -> bool:
+    return "claude" in (name or "").lower()
+
+def split_paths(raw: str) -> list[str]:
+    if not raw:
+        return []
+    parts = []
+    for chunk in raw.replace(",", " ").replace(":", " ").split():
+        parts.append(chunk)
+    return parts
+
+paths = [apps_dir, output_dir]
+paths.extend(split_paths(extra_dirs_raw))
+
+outside = []
+for p in paths:
+    try:
+        rp = Path(os.path.expanduser(p)).resolve()
+    except Exception:
+        continue
+    if workspace not in rp.parents and rp != workspace:
+        outside.append(str(rp))
+
+if outside and any(not is_claude_model(m) for m in models):
+    sys.stderr.write("Warning: non-Claude model in use while paths are outside the Codex workspace.\n")
+    sys.stderr.write(f"Workspace: {workspace}\n")
+    for item in outside:
+        sys.stderr.write(f"Outside path: {item}\n")
+    sys.stderr.write("Consider running from a workspace that contains those paths or keep REPORT_SANDBOX at workspace-write for safety.\n")
+
+if outside and sandbox == "workspace-write":
+    sys.stderr.write("Error: REPORT_SANDBOX=workspace-write but some paths are outside the workspace.\n")
+    sys.exit(2)
+PY
+if [[ $? -eq 2 ]]; then
+  echo "Blocking run because workspace-write cannot access required paths." >&2
+  echo "Either run from a workspace that contains those paths or set REPORT_SANDBOX to a more permissive mode." >&2
+  exit 1
+fi
+
 echo "== Phase 1 ($PHASE1_MODEL): data gathering =="
-"$CODEX_BIN" exec -m "$PHASE1_MODEL" --approval never --sandbox workspace-write - <<'EOF'
-Please run `python3 /lump/apps/dev-activity-report-skill/skills/dev-activity-report-skill/scripts/phase1_runner.py` and print only the JSON output produced by the script.
+"$CODEX_BIN" exec -m "$PHASE1_MODEL" --approval never --sandbox "$REPORT_SANDBOX" - <<EOF
+Please run \`python3 "$SKILL_DIR/scripts/phase1_runner.py"\` and print only the JSON output produced by the script.
 EOF
 
 echo "== Phase 1.5 ($PHASE15_MODEL): draft =="
-"$CODEX_BIN" exec -m "$PHASE15_MODEL" --approval never --sandbox workspace-write --output-last-message "$PHASE15_OUT" - <<'EOF'
-Use advanced reasoning. Read the JSON blob at /lump/apps/dev-activity-report-skill/skills/dev-activity-report-skill/.phase1-cache.json.
+"$CODEX_BIN" exec -m "$PHASE15_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE15_OUT" - <<EOF
+Use advanced reasoning. Read the JSON blob at $SKILL_DIR/.phase1-cache.json.
 Output a rough draft only: 5–8 bullets + a 2-sentence overview. No extra commentary.
 EOF
 
 echo "== Phase 2 ($PHASE2_MODEL): report =="
-"$CODEX_BIN" exec -m "$PHASE2_MODEL" --approval never --sandbox workspace-write --output-last-message "$PHASE2_OUT" - <<'EOF'
-You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Read the JSON blob stored at /lump/apps/dev-activity-report-skill/skills/dev-activity-report-skill/.phase1-cache.json and the draft at /lump/apps/dev-activity-report-skill/codex-phase1_5-last-message.txt, then produce:
+"$CODEX_BIN" exec -m "$PHASE2_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE2_OUT" - <<EOF
+You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Read the JSON blob stored at $SKILL_DIR/.phase1-cache.json and the draft at $PHASE15_OUT, then produce:
 
 - Resume Bullets (5-8 bullets, achievement-oriented, past tense,
 action verbs, quantified where possible):
@@ -137,14 +197,14 @@ else
 fi
 
 echo "== Phase 3 ($PHASE3_MODEL): cache verification =="
-"$CODEX_BIN" exec -m "$PHASE3_MODEL" --approval never --sandbox workspace-write - <<'EOF'
+"$CODEX_BIN" exec -m "$PHASE3_MODEL" --approval never --sandbox "$REPORT_SANDBOX" - <<EOF
 Please run the following Python command:
 
 python3 - <<'PY'
 import json
 from pathlib import Path
 
-skill_dir = Path("/lump/apps/dev-activity-report-skill/skills/dev-activity-report-skill")
+skill_dir = Path("$SKILL_DIR")
 phase1_path = skill_dir / ".phase1-cache.json"
 reports = []
 

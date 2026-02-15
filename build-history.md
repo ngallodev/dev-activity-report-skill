@@ -544,4 +544,118 @@ Total: ~72.8k tokens (~$0.18 at Codex mini/Codex rates). Log files (`codex-phase
 **Benchmark notes**:
 - Phase 1 emitted compact JSON (`fp` present) and cached it to `.phase1-cache.json`.
 - Phase 3 reported per-project cache headers and a non-null phase1 fingerprint.
+
+---
+
+## Milestone 19 — Remove hardcoded paths from `run_report.sh` (PLAN.md TODO #4 & #5)
+
+*Session: 2026-02-14 | Author: ngallodev + Claude Sonnet 4.5*
+
+**Problem**: `run_report.sh` had two issues flagged in the PR #2 review:
+1. `ROOT_DIR`, `SKILL_DIR`, and `CODEX_BIN` were all hardcoded to `/lump/apps/...` and `/home/nate/.nvm/...`, making the script break when the skill is installed to `~/.claude/skills/`.
+2. The `notify_done` fallback ran `sudo apt-get update && apt-get install -y libnotify-bin` silently, which is surprising and requires elevated privileges.
+
+**Solution**:
+
+### TODO #4 — Path derivation
+- `SKILL_DIR` now derived from `$0`: `$(cd "$(dirname "$0")/.." && pwd)` — works correctly whether the script lives in `/lump/apps/`, `~/.claude/skills/`, or anywhere else.
+- `CODEX_BIN` now uses `command -v codex` with a clean error if not found on PATH. The `.nvm`-specific path is gone.
+- Output files (`LOG_FILE`, `PHASE15_OUT`, `PHASE2_OUT`, `REPORT_OUT`) now use `OUTPUT_DIR` derived from `REPORT_OUTPUT_DIR` in `.env`, falling back to `$HOME`. A leading `~` in the env value is expanded correctly.
+- All hardcoded `/lump/apps/...` paths inside heredocs (phases 1, 1.5, 2, 3) replaced with `$SKILL_DIR`/`$PHASE15_OUT` shell variables. Heredoc delimiters switched from `'EOF'` (no expansion) to `EOF` (expansion) where needed.
+
+### TODO #5 — Silent sudo removed from `notify_done`
+- Removed the `sudo apt-get update && apt-get install -y libnotify-bin` block entirely.
+- Replaced with a two-line stderr message: one line shows the notification message, one line provides install hints for both Linux and macOS.
+- The function no longer `exit 1` on notification failure — the report has already been written; a missing notification tool is not a fatal error.
+
+**Files changed**: `skills/dev-activity-report-skill/scripts/run_report.sh`
 - Token counts were visible in CLI output but not persisted in log files.
+
+---
+
+## Milestone 20 — Foreground safeguards + quoting fixes
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Adjusted the foreground path in `run_report.sh` to delay `codex` resolution until after `.env` is loaded (with optional `CODEX_BIN` override), added output directory existence/writability checks, and fixed a quoting issue for Phase 1 invocation when paths contain spaces.
+
+**Changes**:
+- Resolve `CODEX_BIN` after environment loading and honor `CODEX_BIN` if provided.
+- Fail fast (before backgrounding) if `REPORT_OUTPUT_DIR` does not exist or is not writable, with a clear hint.
+- Quote the Phase 1 `python3` path in the Codex instruction string to handle spaces safely.
+
+**Files changed**: `skills/dev-activity-report-skill/scripts/run_report.sh`
+
+**Benchmarks**:
+- Not run. This change only adds guardrails and does not alter core execution timing; no Codex CLI available in this review context.
+
+---
+
+## Milestone 21 — Sandbox configurability + workspace warning
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Added a configurable sandbox setting for `codex exec`, introduced a workspace-outside-path warning when non-Claude models are used, and documented the behavior in README/.env.example.
+
+**Changes**:
+- `REPORT_SANDBOX` defaults to `workspace-write` and is passed through to `codex exec --sandbox`.
+- A warning is emitted if any phase uses a non-Claude model and `APPS_DIR`, `EXTRA_SCAN_DIRS`, or `REPORT_OUTPUT_DIR` resolve outside the current workspace.
+- `README.md` and `.env.example` updated with the new configuration and behavior.
+
+**Files changed**:
+- `skills/dev-activity-report-skill/scripts/run_report.sh`
+- `skills/dev-activity-report-skill/references/examples/.env.example`
+- `README.md`
+
+**Benchmarks**:
+- Not run. Behavior-only changes; no runtime benchmarks captured.
+
+---
+
+## Milestone 22 — Block workspace-write when paths are outside workspace
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Strengthened the workspace safety check so runs are blocked when `REPORT_SANDBOX=workspace-write` but scan/output paths fall outside the current workspace.
+
+**Changes**:
+- If any of `APPS_DIR`, `EXTRA_SCAN_DIRS`, or `REPORT_OUTPUT_DIR` resolve outside the workspace and `REPORT_SANDBOX=workspace-write`, the runner exits with a clear error and guidance.
+
+**Files changed**: `skills/dev-activity-report-skill/scripts/run_report.sh`
+
+**Benchmarks**:
+- Not run. Behavior-only change.
+
+---
+
+## Milestone 23 — Test run (failed: Codex backend disconnect)
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Ran `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh` to validate the new sandbox/workspace guardrails. Phase 1 failed immediately due to Codex backend stream disconnect/rollout recorder errors.
+
+**Benchmark notes**:
+- Command: `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh`
+- Result: failed
+- Errors: rollout recorder channel closed; stream disconnected before completion; failed to shutdown rollout recorder
+- No report artifacts produced.
+
+---
+
+## Milestone 24 — Test run (successful full pipeline)
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Re-ran `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh` under full permissions. All phases completed successfully.
+
+**Benchmark notes**:
+- Command: `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh`
+- Result: success
+- Phase 1 tokens: 15,611
+- Phase 1.5 tokens: 7,863
+- Phase 2 tokens: 11,433
+- Phase 3 tokens: 1,711
+
+**Artifacts**:
+- `codex-test-report-20260215T045308Z.md`
+- `codex-phase3-20260215T045308Z.log`
