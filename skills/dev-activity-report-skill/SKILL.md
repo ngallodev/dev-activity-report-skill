@@ -30,10 +30,11 @@ Load `.env` from the skill root. Copy `.env.example` if missing.
 | `PHASE15_MODEL` | `haiku` | draft synthesis |
 | `PHASE2_MODEL` | `sonnet` | report polish |
 | `PHASE3_MODEL` | `gpt-5.1-codex-mini` | deterministic cache writes |
+| `SUBSCRIPTION_MODE` | `true` | set true when auth is handled by subscription (no API keys) |
 | `TOKEN_LOG_PATH` | `token_economics.log` | JSONL |
 | `BUILD_LOG_PATH` | `build.log` | summary lines |
 | `PRICE_PHASE15_IN/OUT`, `PRICE_PHASE2_IN/OUT` | per 1M tokens | cost calc |
-| `PHASE15_API_KEY`, `PHASE15_API_BASE`, `PHASE2_API_KEY`, `PHASE2_API_BASE` | optional | set if not default |
+| `PHASE15_API_KEY`, `PHASE15_API_BASE`, `PHASE2_API_KEY`, `PHASE2_API_BASE` | optional | leave blank under subscription |
 
 ---
 

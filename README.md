@@ -191,6 +191,8 @@ PHASE2_MODEL=sonnet
 PHASE3_MODEL=gpt-5.1-codex-mini
 TOKEN_LOG_PATH=token_economics.log
 BUILD_LOG_PATH=build.log
+# Subscription auth (leave keys blank when true)
+SUBSCRIPTION_MODE=true
 ```
 
 The Codex/Claude paths and model selections can stay at their defaults unless your setup differs.
