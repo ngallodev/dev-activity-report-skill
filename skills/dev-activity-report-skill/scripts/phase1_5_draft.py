@@ -66,11 +66,11 @@ def call_model(prompt: str, env: dict[str, str], summary: Dict[str, Any]) -> tup
                       {"role": "user", "content": prompt}],
             temperature=0.2,
         )
-        usage = resp.usage or {}
+        u = resp.usage
         text = resp.choices[0].message.content.strip()
         return text, {
-            "prompt_tokens": usage.get("prompt_tokens", 0),
-            "completion_tokens": usage.get("completion_tokens", 0),
+            "prompt_tokens": u.prompt_tokens if u else 0,
+            "completion_tokens": u.completion_tokens if u else 0,
         }
 
     # Fallback: deterministic heuristic draft if no API credentials.
