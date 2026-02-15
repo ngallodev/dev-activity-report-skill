@@ -188,10 +188,11 @@ def discover_markers(apps_dir: Path) -> tuple[list[dict[str, str]], dict[str, st
     project_status: dict[str, str] = {}
     if not apps_dir.exists():
         return markers, project_status
-    for root, _, files in os.walk(apps_dir):
+    for root, dirs, files in os.walk(apps_dir):
         rel = os.path.relpath(root, apps_dir)
         depth = 0 if rel == "." else rel.count(os.sep) + 1
         if depth > 2:
+            dirs[:] = []
             continue
         for marker in MARKERS:
             if marker in files:
@@ -272,9 +273,7 @@ def run_command(args: list[str], cwd: Path | None = None) -> str:
 
 
 def git_range_base(project: dict[str, object]) -> str:
-    cached_fp = project.get("cached_fp", "") or ""
-    if cached_fp and re.fullmatch(r"[0-9a-f]{7,40}", cached_fp):
-        return cached_fp
+    # cached_fp is now a content hash (SHA-256), not a git ref — never use it as a base.
     head = project.get("head", "") or ""
     if head:
         return f"{head}~20"

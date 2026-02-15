@@ -7,7 +7,7 @@ description: Generates a professional activity summary from compact Phase 1 JSON
 
 Pipeline: Phase 1 data gather → Phase 1.5 draft (cheap model) → Phase 2 polish (single-shot) → Phase 3 cache writes.
 
-Docs: compact key map in `docs/PAYLOAD_REFERENCE.md`.
+Docs: compact key map in `references/PAYLOAD_REFERENCE.md`.
 
 ---
 
