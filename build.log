@@ -1,3 +1,8 @@
 Token usage log initialized; entries will be appended by scripts/token_logger.py.
 Token usage: 0 tokens, Cost: $0.0000 (phase=1.5, model=haiku, ts=2026-02-15T01:13:55.554408+00:00)
 2026-02-15T01:13:45Z stub run: Phase1 replay + Phase1.5 fallback; Phase2 stub (no API).
+2026-02-15T02:04:09Z codex run failed: backend stream disconnect; no report generated.
+2026-02-15T02:19:23Z codex run retry failed: backend stream disconnect; no report generated.
+2026-02-15T02:31:00Z codex test report succeeded; output codex-test-report-20260215T022940Z.md; phase3 fp None due to legacy phase1 payload.
+2026-02-15T02:35:00Z updated Phase1 to compact payload and added background runner with notifications.
+2026-02-15T02:52:30Z codex test report succeeded (compact payload); output codex-test-report-20260215T025110Z.md; phase3 fingerprint present.

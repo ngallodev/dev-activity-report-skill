@@ -4,3 +4,6 @@
 codex-phase*.log
 codex-test-report-*.md
 codex-phase2-last-message.txt
+codex-phase1_5-last-message.txt
+codex-run-*.log
+codex-testing-output/
