@@ -180,6 +180,10 @@ APPS_DIR=/home/me/projects
 # Additional one-off directories to include
 EXTRA_SCAN_DIRS=/usr/local/lib/mydb
 
+# Where to write reports/logs (defaults to ~ if omitted)
+REPORT_OUTPUT_DIR=~
+REPORT_SANDBOX=workspace-write
+
 # Your name/company for the resume header
 RESUME_HEADER=Jane Smith Consulting, Jan 2024 – Present
 
@@ -208,6 +212,10 @@ The Codex/Claude paths and model selections can stay at their defaults unless yo
 ```
 
 That's it. Claude reads your `.env`, delegates data gathering to Haiku, synthesizes the report, delegates cache writes to Codex, and saves the output to `~/dev-activity-report-YYYY-MM-DD.md`.
+
+### Sandbox + workspace behavior
+
+The runner passes `REPORT_SANDBOX` directly to `codex exec --sandbox`. Default is `workspace-write`. The Codex workspace is the current working directory where the run is invoked; paths outside that workspace may be blocked under `workspace-write`. If you choose a more permissive sandbox (for example `none`, if your Codex build supports it), you can scan and write outside the workspace. When any phase uses a non-Claude model and paths fall outside the workspace, the runner prints a warning to stderr.
 
 ### Suggested global config tip
 

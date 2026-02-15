@@ -570,3 +570,72 @@ Total: ~72.8k tokens (~$0.18 at Codex mini/Codex rates). Log files (`codex-phase
 
 **Files changed**: `skills/dev-activity-report-skill/scripts/run_report.sh`
 - Token counts were visible in CLI output but not persisted in log files.
+
+---
+
+## Milestone 20 — Foreground safeguards + quoting fixes
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Adjusted the foreground path in `run_report.sh` to delay `codex` resolution until after `.env` is loaded (with optional `CODEX_BIN` override), added output directory existence/writability checks, and fixed a quoting issue for Phase 1 invocation when paths contain spaces.
+
+**Changes**:
+- Resolve `CODEX_BIN` after environment loading and honor `CODEX_BIN` if provided.
+- Fail fast (before backgrounding) if `REPORT_OUTPUT_DIR` does not exist or is not writable, with a clear hint.
+- Quote the Phase 1 `python3` path in the Codex instruction string to handle spaces safely.
+
+**Files changed**: `skills/dev-activity-report-skill/scripts/run_report.sh`
+
+**Benchmarks**:
+- Not run. This change only adds guardrails and does not alter core execution timing; no Codex CLI available in this review context.
+
+---
+
+## Milestone 21 — Sandbox configurability + workspace warning
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Added a configurable sandbox setting for `codex exec`, introduced a workspace-outside-path warning when non-Claude models are used, and documented the behavior in README/.env.example.
+
+**Changes**:
+- `REPORT_SANDBOX` defaults to `workspace-write` and is passed through to `codex exec --sandbox`.
+- A warning is emitted if any phase uses a non-Claude model and `APPS_DIR`, `EXTRA_SCAN_DIRS`, or `REPORT_OUTPUT_DIR` resolve outside the current workspace.
+- `README.md` and `.env.example` updated with the new configuration and behavior.
+
+**Files changed**:
+- `skills/dev-activity-report-skill/scripts/run_report.sh`
+- `skills/dev-activity-report-skill/references/examples/.env.example`
+- `README.md`
+
+**Benchmarks**:
+- Not run. Behavior-only changes; no runtime benchmarks captured.
+
+---
+
+## Milestone 22 — Block workspace-write when paths are outside workspace
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Strengthened the workspace safety check so runs are blocked when `REPORT_SANDBOX=workspace-write` but scan/output paths fall outside the current workspace.
+
+**Changes**:
+- If any of `APPS_DIR`, `EXTRA_SCAN_DIRS`, or `REPORT_OUTPUT_DIR` resolve outside the workspace and `REPORT_SANDBOX=workspace-write`, the runner exits with a clear error and guidance.
+
+**Files changed**: `skills/dev-activity-report-skill/scripts/run_report.sh`
+
+**Benchmarks**:
+- Not run. Behavior-only change.
+
+---
+
+## Milestone 23 — Test run (failed: Codex backend disconnect)
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Ran `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh` to validate the new sandbox/workspace guardrails. Phase 1 failed immediately due to Codex backend stream disconnect/rollout recorder errors.
+
+**Benchmark notes**:
+- Command: `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh`
+- Result: failed
+- Errors: rollout recorder channel closed; stream disconnected before completion; failed to shutdown rollout recorder
+- No report artifacts produced.
