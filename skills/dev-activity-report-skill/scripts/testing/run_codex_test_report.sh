@@ -3,8 +3,13 @@ set -euo pipefail
 
 CODEX_BIN="/home/nate/.nvm/versions/node/v22.19.0/bin/codex"
 WORKDIR="/lump/apps/dev-activity-report-skill"
+SKILL_DIR="$WORKDIR/skills/dev-activity-report-skill"
+PHASE1_MODEL="gpt-5.1-codex-mini"
+PHASE15_MODEL="$PHASE1_MODEL"
+PHASE2_MODEL="gpt-5.3-codex"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 PHASE1_LOG="$WORKDIR/codex-phase1-$TIMESTAMP.log"
+PHASE15_TEMP="$WORKDIR/codex-phase1_5-last-message.txt"
 PHASE2_TEMP="$WORKDIR/codex-phase2-last-message.txt"
 PHASE2_REPORT="$WORKDIR/codex-test-report-$TIMESTAMP.md"
 PHASE3_LOG="$WORKDIR/codex-phase3-$TIMESTAMP.log"
@@ -18,17 +23,23 @@ function check_codex () {
 
 check_codex
 
-echo "== Phase 1 (gpt-5.1-codex-mini): data gathering ==" | tee "$PHASE1_LOG"
-"$CODEX_BIN" exec -m gpt-5.1-codex-mini --sandbox workspace-write - <<'EOF' | tee -a "$PHASE1_LOG"
-Please run `python3 phase1_runner.py` inside /lump/apps/dev-activity-report-skill and print only the JSON output produced by the script. After completing, mention the fingerprint stored in .phase1-cache.json.
+echo "== Phase 1 ($PHASE1_MODEL): data gathering ==" | tee "$PHASE1_LOG"
+"$CODEX_BIN" exec -m "$PHASE1_MODEL" --sandbox workspace-write - <<'EOF' | tee -a "$PHASE1_LOG"
+Please run `python3 /lump/apps/dev-activity-report-skill/skills/dev-activity-report-skill/scripts/phase1_runner.py` and print only the JSON output produced by the script. After completing, mention the fingerprint stored in /lump/apps/dev-activity-report-skill/skills/dev-activity-report-skill/.phase1-cache.json.
 EOF
 
 echo
-echo "Phase 1 complete. Fingerprint file (if created) is: $WORKDIR/.phase1-cache.json"
+echo "Phase 1 complete. Fingerprint file (if created) is: $SKILL_DIR/.phase1-cache.json"
 
-echo "== Phase 2 (gpt-5.3-codex): analysis/report ==" 
-"$CODEX_BIN" exec -m gpt-5.3-codex --sandbox workspace-write --output-last-message "$PHASE2_TEMP" - <<'EOF'
-You are a senior resume/portfolio writer. Read the JSON blob stored at /lump/apps/dev-activity-report-skill/.phase1-cache.json and produce:
+echo "== Phase 1.5 ($PHASE15_MODEL): draft ==" 
+"$CODEX_BIN" exec -m "$PHASE15_MODEL" --sandbox workspace-write --output-last-message "$PHASE15_TEMP" - <<'EOF'
+Use advanced reasoning. Read the JSON blob at /lump/apps/dev-activity-report-skill/skills/dev-activity-report-skill/.phase1-cache.json.
+Output a rough draft only: 5–8 bullets + a 2-sentence overview. No extra commentary.
+EOF
+
+echo "== Phase 2 ($PHASE2_MODEL): analysis/report ==" 
+"$CODEX_BIN" exec -m "$PHASE2_MODEL" --sandbox workspace-write --output-last-message "$PHASE2_TEMP" - <<'EOF'
+You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Read the JSON blob stored at /lump/apps/dev-activity-report-skill/skills/dev-activity-report-skill/.phase1-cache.json and the draft at /lump/apps/dev-activity-report-skill/codex-phase1_5-last-message.txt, then produce:
 
 - Resume Bullets (5-8 bullets, achievement-oriented, past tense,
 action verbs, quantified where possible):
@@ -56,13 +67,13 @@ fi
 
 echo "== Phase 3 (gpt-5.1-codex-mini): cache verification =="
 "$CODEX_BIN" exec -m gpt-5.1-codex-mini --sandbox workspace-write - <<'EOF' | tee "$PHASE3_LOG"
-Please `cd /lump/apps/dev-activity-report-skill` and run the following Python command:
+Please run the following Python command:
 
 python3 - <<'PY'
 import json
 from pathlib import Path
 
-skill_dir = Path("/lump/apps/dev-activity-report-skill")
+skill_dir = Path("/lump/apps/dev-activity-report-skill/skills/dev-activity-report-skill")
 phase1_path = skill_dir / ".phase1-cache.json"
 reports = []
 
@@ -73,11 +84,11 @@ else:
     reports.append("phase1 cache missing")
     data = {}
 
-for proj in data.get("data", {}).get("cache_fingerprints", []):
-    path = Path(proj["path"])
+for proj in data.get("data", {}).get("p", []):
+    path = Path(proj.get("pt", ""))
     cache = path / ".dev-report-cache.md"
     header = cache.read_text().splitlines()[0] if cache.exists() else "missing"
-    reports.append(f"{proj['name']}: {header}")
+    reports.append(f"{proj.get('n','project')}: {header}")
 
 print("\\n".join(reports))
 PY
