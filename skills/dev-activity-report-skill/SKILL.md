@@ -154,7 +154,7 @@ Output:
 
 Log Phase 2 tokens using `scripts/token_logger.py` with API usage numbers returned by the provider.
 
-Save final report to `${REPORT_OUTPUT_DIR}/${REPORT_FILENAME_PREFIX}-<YYYY-MM-DD>.md`.
+Save final report to `${REPORT_OUTPUT_DIR}/${REPORT_FILENAME_PREFIX}-<YYYYMMDDTHHMMSSZ>.md` (UTC datetime format to prevent overwrites).
 
 ---
 
