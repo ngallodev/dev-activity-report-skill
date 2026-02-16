@@ -866,5 +866,128 @@ Total: ~72.8k tokens (~$0.18 at Codex mini/Codex rates). Log files (`codex-phase
 
 ---
 
+## Milestone 32 — Code Review Fixes (from Milestone 29 Recommendations)
+
+*Session: 2026-02-16 | Author: Claude Code*
+
+**What happened**: Ingested the comprehensive code review report produced in Milestone 29 and implemented all valid, actionable improvements. Five distinct issues were addressed across three files.
+
+**Issues resolved**:
+
+### 1. Hardcoded Paths in Test Script (Issue 2.1 — High Priority)
+**File**: `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh`
+
+The script had machine-specific hardcoded paths that broke portability. Applied the same pattern already used in `run_report.sh`:
+- `SKILL_DIR` now uses `$(cd "$(dirname "$0")/../.." && pwd)` — self-relative resolution
+- `WORKDIR` derived from `$SKILL_DIR` rather than hardcoded
+- `CODEX_BIN` now uses `${CODEX_BIN:-$(command -v codex 2>/dev/null || true)}` — honors env override, falls back to PATH lookup
+- `check_codex()` updated to handle empty `CODEX_BIN` gracefully
+- All heredoc blocks (`<<'EOF'` → `<<EOF`) updated to expand `$SKILL_DIR` and `$PHASE15_TEMP` — eliminating 6+ hardcoded absolute paths in Phase 1, 1.5, 2, and 3 blocks
+
+### 2. File Size Limits in Hash Functions (Issue 2.2 — Medium Priority)
+**File**: `skills/dev-activity-report-skill/scripts/phase1_runner.py`
+
+Added `MAX_HASH_FILE_SIZE = 100 MB` constant. Both `hash_file()` and `hash_paths()` now skip full content hashing for oversized files, using a deterministic placeholder hash instead. Prevents OOM on unexpectedly large binary or log files in scanned directories.
+
+### 3. Git Command Error Logging (Issue 2.3 — Minor)
+**File**: `skills/dev-activity-report-skill/scripts/phase1_runner.py`
+
+`git_tracked_files()` previously returned `[]` silently on any failure. Now:
+- Prints a `warning:` message to stderr when `git ls-files` exits non-zero with stderr output
+- Prints a `warning:` message when an OS/subprocess exception is raised
+- Added `import sys` to support stderr output
+Helps distinguish actual errors from expected "not a git repo" cases.
+
+### 4. Atomic Cache Write (Issue 2.4 — Medium Priority)
+**File**: `skills/dev-activity-report-skill/scripts/phase1_runner.py`
+
+`write_cache()` previously wrote directly to `.phase1-cache.json`, leaving the file in a corrupt partial state if the process crashed mid-write. Now uses the atomic write pattern:
+1. Write JSON to `.phase1-cache.tmp`
+2. `tmp.replace(CACHE_FILE)` — atomic rename on POSIX filesystems
+3. Cleans up `.tmp` on failure
+
+### 5. Token Logger Price Fallback Warning (Issue 2.5 — Minor)
+**File**: `skills/dev-activity-report-skill/scripts/token_logger.py`
+
+`append_usage()` previously fell back silently to Phase 2 pricing (`PRICE_PHASE2_IN/OUT`) when no price was provided, producing incorrect cost calculations for Phase 1, 1.5, and 3. Now:
+- If `price_in`/`price_out` is not passed and `PRICE_PHASE2_IN/OUT` is not set, defaults to `0.0` with an explicit `warning:` to stderr
+- If the env variable IS set, uses it (previous behavior preserved)
+- Added `import sys` for stderr support
+
+### 6. pygit2 Fast Path for Git Operations (Enhancement)
+**File**: `skills/dev-activity-report-skill/scripts/phase1_runner.py`
+
+Added `pygit2` as an optional accelerator for all three git introspection functions, following the same try/except import pattern used for `python-dotenv`:
+
+- **`is_git_repo()`**: Uses `pygit2.discover_repository()` — reads `.git` directory directly, no subprocess
+- **`git_head()`**: Uses `repo.head.target` — reads packed-refs/HEAD directly, no subprocess
+- **`git_tracked_files()`**: Uses `repo.index.read()` — reads `.git/index` binary format directly, no subprocess
+
+When `pygit2` is not installed, all three functions fall back to the existing `subprocess` + `git` CLI path. Zero behavioral change when `pygit2` is absent.
+
+**Why pygit2 over GitPython**: GitPython calls `git` subprocess internally for most operations — same overhead as the current approach. `pygit2` binds to `libgit2` (C library) and reads git objects directly from disk, eliminating process spawn overhead entirely. Per-project savings: 3 subprocess calls → 0 when `pygit2` is present.
+
+**Issues intentionally skipped**:
+- **Issue 2.6** (env parser quoted values): Low impact; `python-dotenv` is the preferred path already, fallback parser works for the simple `KEY=VALUE` format used in `.env.example`
+- **Test coverage** (Section 3.3): Adding a pytest suite is a standalone project; not included here
+- **Async git operations** (Section 5.3): Premature optimization; sequential is fine at current scale
+
+**Files modified**:
+- `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh`
+- `skills/dev-activity-report-skill/scripts/phase1_runner.py`
+- `skills/dev-activity-report-skill/scripts/token_logger.py`
+
+**Benchmark** (impact assessment):
+- `hash_file()` / `hash_paths()`: No measurable change for typical files; prevents potential OOM on large repos
+- `write_cache()`: One extra syscall (rename) instead of direct write; negligible overhead
+- `git_tracked_files()` / `is_git_repo()` / `git_head()`: When `pygit2` installed — eliminates 3 subprocess spawns per project (e.g. 13 projects → saves ~39 process forks per cold scan); when absent — zero change
+
+---
+
+## Milestone 33 — Cache Clear Script and requirements.txt
+
+*Session: 2026-02-16 | Author: Claude Code*
+
+**What happened**: Added two missing infrastructure pieces: a `requirements.txt` documenting Python dependencies, and a `clear_cache.py` script for forcing a full fresh scan.
+
+### requirements.txt
+
+`skills/dev-activity-report-skill/scripts/requirements.txt` — lists all third-party Python dependencies:
+- `python-dotenv>=1.0.0` — required (graceful fallback exists but produces a warning)
+- `pygit2>=1.14.0` — optional; enables fast git introspection via libgit2 without subprocess
+
+Install with: `pip install -r skills/dev-activity-report-skill/scripts/requirements.txt`
+Optional only: `pip install pygit2`
+
+### clear_cache.py
+
+`skills/dev-activity-report-skill/scripts/clear_cache.py` — safe, config-aware cache clear tool.
+
+**What it clears**:
+1. `$SKILL_DIR/.phase1-cache.json` — global fingerprint cache
+2. `$SKILL_DIR/.phase1-cache.tmp` — leftover from interrupted atomic write
+3. `$SKILL_DIR/scripts/.phase1-cache.json` — stray cache from earlier runs in wrong directory
+4. `$APPS_DIR/*/.dev-report-cache.md` — all per-project caches (depth 1)
+
+**Design**:
+- Reads `.env` / defaults (same logic as `phase1_runner.py`) to resolve `APPS_DIR` — clears the right directories regardless of config
+- Default mode is **dry-run**: prints what would be deleted, does nothing
+- Requires `--confirm` to actually delete — prevents accidental runs
+- Reuses `python-dotenv` fallback pattern consistent with rest of codebase
+
+**Usage**:
+```bash
+python3 scripts/clear_cache.py           # dry-run: show what would be removed
+python3 scripts/clear_cache.py --confirm # actually delete
+```
+
+**Verified** (dry-run on 2026-02-16): correctly identified 19 cache files — 2 phase1 caches (including stray in `scripts/`) + 17 per-project `.dev-report-cache.md` files.
+
+**Files added**:
+- `skills/dev-activity-report-skill/scripts/requirements.txt`
+- `skills/dev-activity-report-skill/scripts/clear_cache.py`
+
+---
+
 *End of Build History*
 
