@@ -58,10 +58,11 @@ if [[ ! -w "$OUTPUT_DIR" ]]; then
 fi
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
+REPORT_FILENAME_PREFIX="${REPORT_FILENAME_PREFIX:-dev-activity-report}"
 LOG_FILE="$OUTPUT_DIR/codex-run-$TS.log"
 PHASE15_OUT="$OUTPUT_DIR/codex-phase1_5-last-message.txt"
 PHASE2_OUT="$OUTPUT_DIR/codex-phase2-last-message.txt"
-REPORT_OUT="$OUTPUT_DIR/codex-test-report-$TS.md"
+REPORT_OUT="$OUTPUT_DIR/${REPORT_FILENAME_PREFIX}-$TS.md"
 
 FOREGROUND=false
 if [[ "${1:-}" == "--foreground" ]]; then

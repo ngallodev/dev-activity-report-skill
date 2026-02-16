@@ -28,7 +28,7 @@ A Claude Code skill that scans your local development environment — git repos,
 3. **Phase 2 — Polish** (`${PHASE2_MODEL}`): single-shot prompt that ingests the compact JSON + draft and produces the final report with fixed headings (Overview, Key Changes, Recommendations, Resume Bullets, LinkedIn, Highlights, Timeline, Tech Inventory). No raw git logs are ever loaded.
 4. **Phase 3 — Cache writes** (`${PHASE3_MODEL}`): writes per-project `.dev-report-cache.md` files using the new content-hash fingerprints to keep future scans warm.
 
-**Result:** A dated `.md` file at `~/dev-activity-report-YYYY-MM-DD.md` plus token_economics/build logs capturing Phase 1.5 + Phase 2 usage.
+**Result:** A timestamped `.md` file at `~/dev-activity-report-YYYYMMDDTHHMMSSZ.md` (UTC datetime) plus token_economics/build logs capturing Phase 1.5 + Phase 2 usage. Consecutive reports get unique filenames and won't overwrite each other.
 
 ---
 
@@ -211,7 +211,7 @@ The Codex/Claude paths and model selections can stay at their defaults unless yo
 /dev-activity-report
 ```
 
-That's it. Claude reads your `.env`, delegates data gathering to Haiku, synthesizes the report, delegates cache writes to Codex, and saves the output to `~/dev-activity-report-YYYY-MM-DD.md`.
+That's it. Claude reads your `.env`, delegates data gathering to Haiku, synthesizes the report, delegates cache writes to Codex, and saves the output to `~/dev-activity-report-YYYYMMDDTHHMMSSZ.md` (UTC datetime format ensures unique filenames for consecutive runs).
 
 ### Sandbox + workspace behavior
 
@@ -291,7 +291,7 @@ Files written to your environment during use:
 <APPS_DIR>/<project>/.not-my-work            # Ownership marker (you create)
 <APPS_DIR>/<project>/.forked-work            # Fork contribution notes
 ~/.codex/.dev-report-cache.md               # Codex session analytics cache
-~/dev-activity-report-YYYY-MM-DD.md         # Report output
+~/dev-activity-report-YYYYMMDDTHHMMSSZ.md         # Report output (UTC datetime, unique per run)
 ```
 
 ---
