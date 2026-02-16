@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -50,8 +51,20 @@ def append_usage(
     if build_log_path:
         build_log = build_log_path
 
-    price_in = price_in if price_in is not None else float(env.get("PRICE_PHASE2_IN", 0) or 0)
-    price_out = price_out if price_out is not None else float(env.get("PRICE_PHASE2_OUT", 0) or 0)
+    if price_in is None:
+        raw_in = env.get("PRICE_PHASE2_IN")
+        if raw_in:
+            price_in = float(raw_in)
+        else:
+            print(f"warning: no price_in provided for phase={phase}; cost will be 0", file=sys.stderr)
+            price_in = 0.0
+    if price_out is None:
+        raw_out = env.get("PRICE_PHASE2_OUT")
+        if raw_out:
+            price_out = float(raw_out)
+        else:
+            print(f"warning: no price_out provided for phase={phase}; cost will be 0", file=sys.stderr)
+            price_out = 0.0
 
     total_tokens = prompt_tokens + completion_tokens
     cost = (prompt_tokens * price_in + completion_tokens * price_out) / 1_000_000

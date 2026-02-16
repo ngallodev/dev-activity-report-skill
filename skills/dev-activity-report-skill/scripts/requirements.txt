@@ -1,0 +1,5 @@
+# Required
+python-dotenv>=1.0.0   # .env file parsing; graceful fallback exists if absent
+
+# Optional — improves performance when installed
+pygit2>=1.14.0         # fast git introspection via libgit2 (no subprocess); falls back to git CLI
