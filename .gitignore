@@ -7,3 +7,6 @@ codex-phase2-last-message.txt
 codex-phase1_5-last-message.txt
 codex-run-*.log
 codex-testing-output/
+*.log
+__pycache__/
+*.pyc
