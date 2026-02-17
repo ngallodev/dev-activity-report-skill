@@ -217,6 +217,26 @@ That's it. Claude reads your `.env`, delegates data gathering to Haiku, synthesi
 
 The runner passes `REPORT_SANDBOX` directly to `codex exec --sandbox`. Default is `workspace-write`. The Codex workspace is the current working directory where the run is invoked; paths outside that workspace may be blocked under `workspace-write`. If you choose a more permissive sandbox (for example `none`, if your Codex build supports it), you can scan and write outside the workspace. When any phase uses a non-Claude model and paths fall outside the workspace, the runner prints a warning to stderr.
 
+### Consolidate Reports
+
+Use the consolidator to merge all `dev-activity-report-*.md` outputs and `codex-test-report-*.md` test reports into a single, de-duplicated document grouped by heading:
+
+```bash
+python3 skills/dev-activity-report-skill/scripts/consolidate_reports.py \
+  --test-report-root /lump/apps/dev-activity-report-skill \
+  --report-root /home/nate \
+  --output /home/nate/dev-activity-report-aggregate.md
+```
+
+Templated values are provided via environment variables:
+
+- `DAR_TEST_REPORT_ROOT` (default: `/lump/apps/dev-activity-report-skill`)
+- `DAR_REPORT_ROOT` (default: `~`)
+- `DAR_TEST_REPORT_GLOB` (default: `codex-test-report-*.md`)
+- `DAR_REPORT_GLOB` (default: `dev-activity-report-*.md`)
+- `DAR_AGGREGATE_OUTPUT` (default: `~/dev-activity-report-aggregate.md`)
+- `DAR_AGGREGATE_TITLE` (default: `Dev Activity Report — Aggregate`)
+
 ### Suggested global config tip
 
 Consider adding this to your global memory/config file so your agent stays consistent:

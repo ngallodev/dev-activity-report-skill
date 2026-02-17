@@ -659,3 +659,77 @@ Total: ~72.8k tokens (~$0.18 at Codex mini/Codex rates). Log files (`codex-phase
 **Artifacts**:
 - `codex-test-report-20260215T045308Z.md`
 - `codex-phase3-20260215T045308Z.log`
+
+---
+
+## Milestone 25 — Report consolidation script
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Added a consolidation script to merge all `dev-activity-report-*.md` outputs and `codex-test-report-*.md` test reports into a single de-duplicated document grouped by normalized headings. Documented the script usage and templated path configuration in README.
+
+**Artifacts**:
+- `skills/dev-activity-report-skill/scripts/consolidate_reports.py`
+
+**README updates**:
+- Added usage example and environment-variable overrides for report roots, globs, output path, and title.
+
+**Benchmarks**:
+- Not run. Script-only addition.
+
+---
+
+## Milestone 26 — Consolidation env defaults
+
+*Session: 2026-02-15 | Author: Codex GPT-5*
+
+**What happened**: Added consolidation environment variable defaults to `references/examples/.env.example` so the same `.env` file can drive report aggregation.
+
+**Artifacts**:
+- `skills/dev-activity-report-skill/references/examples/.env.example`
+
+**Benchmarks**:
+- Not run. Config-only change.
+
+---
+
+## Milestone 27 — Consolidation script improvements and test run
+
+*Session: 2026-02-14 | Author: Claude Sonnet 4.5*
+
+**What happened**: Reviewed and improved `consolidate_reports.py` based on PR #4 code review findings. Fixed four bugs and validated against all 9 real report files.
+
+**Bugs fixed**:
+1. **Silent content loss** — `normalize_heading` returned `None` for unknown headings; content was discarded. Fixed by adding an `"Other"` catch-all bucket so no content is dropped.
+2. **Hiring-manager heading miss** — `"Hiring-Manager Highlights (Engineering Depth)"` (hyphenated, codex-generated) was not matched. Fixed by checking `"hiring" in t and ("manager" in t or "highlight" in t)`.
+3. **Variant heading patterns not matched** — `"Short Tech Inventory"`, `"5-Row Timeline (Most Recent First)"`, `"LinkedIn Summary (3-4 sentences)"`, `"Resume Bullets (ngallodev Software...)"` all now match correctly via broader substring rules.
+4. **Dead code** — `iter_reports()` was defined but never called. Removed; replaced with `collect_report_paths()` which also guards against including the output file in its own inputs.
+5. **Hardcoded machine path** — `.env.example` had `DAR_TEST_REPORT_ROOT=/lump/apps/dev-activity-report-skill`. Changed to a generic placeholder.
+6. **Table header detection ran per-entry** — header detection was inside the entry loop, running repeatedly. Extracted to `_detect_table_header()` helper called once per section flush.
+7. **No default for `--test-report-root`** — default was a machine-specific absolute path; changed to empty string with safe non-existent path fallback.
+
+**Benchmarks** (9 reports, run on 2026-02-14):
+- 9 reports processed (4 codex-test, 5 dev-activity)
+- 15 sections populated (including "Other" catch-all)
+- 287 total unique entries after deduplication
+- Wall time: **0.01s**
+
+**Artifacts updated**:
+- `skills/dev-activity-report-skill/scripts/consolidate_reports.py`
+- `skills/dev-activity-report-skill/references/examples/.env.example`
+
+---
+
+## Milestone 28 — Archive source reports after consolidation
+
+*Session: 2026-02-14 | Author: Claude Sonnet 4.5*
+
+**What happened**: After a successful consolidation run, source report files are now automatically archived into a timestamped `tar.gz` alongside the output file. Archive is named `<output-stem>-consolidated-<datetimestamp>.tar.gz` (UTC, ISO 8601 compact). Uses stdlib `tarfile`; no new dependencies.
+
+**Benchmarks** (9 reports, run on 2026-02-14):
+- Archive created: `test-aggregate-consolidated-20260215T072943Z.tar.gz`
+- 9 files archived, total compressed ~34 KB
+- No measurable wall-time impact on overall run (0.01s end-to-end)
+
+**Artifacts updated**:
+- `skills/dev-activity-report-skill/scripts/consolidate_reports.py`
