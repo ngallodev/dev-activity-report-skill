@@ -1200,3 +1200,60 @@ Benchmark records stored in `references/benchmarks.jsonl`.
 
 *End of Build History*
 
+## Milestone 9 — Review Fixes (2026-02-17)
+
+**What happened**: Addressed remaining PR review items: token logging accuracy, benchmark log location, safer background logging, and documentation/privacy cleanups.
+
+### Changes
+
+- `run_pipeline.py`: normalize Claude CLI usage into prompt/completion tokens for `token_logger`, guard empty cache files in Phase 3, validate output dir before background log creation, and route benchmark logs to `BENCHMARK_LOG_PATH` or `REPORT_OUTPUT_DIR/benchmarks.jsonl`.
+- `token_logger.py`: default log paths now resolve to `REPORT_OUTPUT_DIR` with env/tilde expansion.
+- Docs: updated `.env.example`, `references/examples/.env.example`, `README.md`, and `SKILL.md` to reflect new log defaults and benchmark path overrides.
+- `references/benchmarks.jsonl`: corrected `total_sec`, removed embedded `timings_sec.total`, and sanitized report paths.
+- Phase 2 prompts: expand compact payload keys into human-readable labels to avoid `mk`/`st` shorthand in Key Changes (run_pipeline + run_report.sh).
+- `references/ignored-files-summary.md`: removed from references (moved to ignored planning docs) to avoid shipping machine-specific details in the repo.
+
+### Benchmarks
+
+- No new benchmark runs executed in this milestone; existing benchmark records were normalized and sanitized.
+
+---
+
+## Milestone 9 — Review Fixes (2026-02-17)
+
+**What happened**: Addressed remaining PR review items: token logging accuracy, benchmark log location, safer background logging, and documentation/privacy cleanups.
+
+### Changes
+
+- `run_pipeline.py`: normalize Claude CLI usage into prompt/completion tokens for `token_logger`, guard empty cache files in Phase 3, validate output dir before background log creation, and route benchmark logs to `BENCHMARK_LOG_PATH` or `REPORT_OUTPUT_DIR/benchmarks.jsonl`.
+- `token_logger.py`: default log paths now resolve to `REPORT_OUTPUT_DIR` with env/tilde expansion.
+- Docs: updated `.env.example`, `references/examples/.env.example`, `README.md`, and `SKILL.md` to reflect new log defaults and benchmark path overrides.
+- `references/benchmarks.jsonl`: corrected `total_sec`, removed embedded `timings_sec.total`, and sanitized report paths.
+- Phase 2 prompts: expand compact payload keys into human-readable labels to avoid `mk`/`st` shorthand in Key Changes (run_pipeline + run_report.sh).
+- `references/ignored-files-summary.md`: removed from references (moved to ignored planning docs) to avoid shipping machine-specific details in the repo.
+
+### Benchmarks
+
+- No new benchmark runs executed in this milestone; existing benchmark records were normalized and sanitized.
+
+---
+
+## Milestone 10 — JSON Output + Renderer (2026-02-17)
+
+**What happened**: Phase 2 now outputs JSON only. Rendering is handled by a new Phase 2.5 script, enabling multiple output formats without LLM translation overhead.
+
+### Changes
+
+- `run_pipeline.py`: Phase 2 consumes compact payload (token-efficient), outputs JSON only, then deterministic expansion + normalization occurs post-model. Added Phase 2.5 renderer invocation and JSON report output.
+- `render_report.py`: new renderer script for `md` and `html` outputs.
+- `run_report.sh`: updated to request JSON output, assemble report JSON, and render outputs via `render_report.py`.
+- Config: added `REPORT_OUTPUT_FORMATS` and `INCLUDE_SOURCE_PAYLOAD` to `.env.example` and docs.
+- Docs: updated `README.md` and `SKILL.md` to reflect JSON-first pipeline and renderer phase.
+
+### Benchmarks
+
+- Not run for this milestone.
+
+---
+
+*End of Build History*

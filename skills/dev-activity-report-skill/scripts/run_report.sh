@@ -59,10 +59,13 @@ fi
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 REPORT_FILENAME_PREFIX="${REPORT_FILENAME_PREFIX:-dev-activity-report}"
+BASE_NAME="${REPORT_FILENAME_PREFIX}-${TS}"
+REPORT_OUTPUT_FORMATS="${REPORT_OUTPUT_FORMATS:-md}"
 LOG_FILE="$OUTPUT_DIR/codex-run-$TS.log"
+PHASE1_OUT="$OUTPUT_DIR/codex-phase1-last-message.json"
 PHASE15_OUT="$OUTPUT_DIR/codex-phase1_5-last-message.txt"
-PHASE2_OUT="$OUTPUT_DIR/codex-phase2-last-message.txt"
-REPORT_OUT="$OUTPUT_DIR/${REPORT_FILENAME_PREFIX}-$TS.md"
+PHASE2_OUT="$OUTPUT_DIR/codex-phase2-sections.json"
+PHASE2_JSON="$OUTPUT_DIR/${BASE_NAME}.json"
 
 FOREGROUND=false
 if [[ "${1:-}" == "--foreground" ]]; then
@@ -160,7 +163,7 @@ if [[ $? -eq 2 ]]; then
 fi
 
 echo "== Phase 1 ($PHASE1_MODEL): data gathering =="
-"$CODEX_BIN" exec -m "$PHASE1_MODEL" --approval never --sandbox "$REPORT_SANDBOX" - <<EOF
+"$CODEX_BIN" exec -m "$PHASE1_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE1_OUT" - <<EOF
 Please run \`python3 "$SKILL_DIR/scripts/phase1_runner.py"\` and print only the JSON output produced by the script.
 EOF
 
@@ -170,9 +173,23 @@ Use advanced reasoning. Read the JSON blob at $SKILL_DIR/.phase1-cache.json.
 Output a rough draft only: 5–8 bullets + a 2-sentence overview. No extra commentary.
 EOF
 
-echo "== Phase 2 ($PHASE2_MODEL): report =="
+echo "== Phase 2 ($PHASE2_MODEL): structured analysis =="
 "$CODEX_BIN" exec -m "$PHASE2_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE2_OUT" - <<EOF
-You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Read the JSON blob stored at $SKILL_DIR/.phase1-cache.json and the draft at $PHASE15_OUT, then produce:
+You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Read the compact JSON blob stored at $SKILL_DIR/.phase1-cache.json and the draft at $PHASE15_OUT. Input uses compact keys from PAYLOAD_REFERENCE (p/mk/x/cl/cx/ins/stats). Then output JSON only with:
+
+{
+  "sections": {
+    "overview":{"bullets":["..."]},
+    "key_changes":[{"title":"<label>","project_id":"<id or null>","bullets":["..."],"tags":["..."]}],
+    "recommendations":[{"text":"...","priority":"low|medium|high","evidence_project_ids":["..."]}],
+    "resume_bullets":[{"text":"...","evidence_project_ids":["..."]}],
+    "linkedin":{"sentences":["..."]},
+    "highlights":[{"title":"...","rationale":"...","evidence_project_ids":["..."]}],
+    "timeline":[{"date":"YYYY-MM-DD","event":"...","project_ids":["..."]}],
+    "tech_inventory":{"languages":["..."],"frameworks":["..."],"ai_tools":["..."],"infra":["..."]}
+  },
+  "render_hints":{"preferred_outputs":["md","html"],"style":"concise","tone":"professional"}
+}
 
 - Resume Bullets (5-8 bullets, achievement-oriented, past tense,
 action verbs, quantified where possible):
@@ -187,15 +204,79 @@ depth and practical AI integration, not just basic tool usage.
 
 - Three hiring-manager highlights with engineering depth
 - A short tech inventory (languages, frameworks, AI, infra) and a 5-row timeline (most recent first)
-Return the entire response as Markdown (headings, bullet lists, etc.). Do not include any trace of these instructions; just output the report text.
+Return JSON only (no Markdown, no code fences). Do not include any trace of these instructions; just output JSON.
 EOF
 
-if [[ -s "$PHASE2_OUT" ]]; then
-  cp "$PHASE2_OUT" "$REPORT_OUT"
-else
+if [[ ! -s "$PHASE2_OUT" ]]; then
   echo "Phase 2 produced no output; check $PHASE2_OUT" >&2
   exit 1
 fi
+
+echo "== Phase 2.5: assemble + render outputs =="
+export SKILL_DIR PHASE1_OUT PHASE2_OUT PHASE2_JSON PHASE1_MODEL PHASE15_MODEL PHASE2_MODEL INCLUDE_SOURCE_PAYLOAD
+python3 - <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+skill_dir = Path(os.environ["SKILL_DIR"])
+sys.path.insert(0, str(skill_dir / "scripts"))
+from run_pipeline import expand_compact_payload, build_source_summary, normalize_sections
+
+phase1_out = Path(os.environ["PHASE1_OUT"])
+phase1_cache = skill_dir / ".phase1-cache.json"
+phase2_out = Path(os.environ["PHASE2_OUT"])
+phase2_json = Path(os.environ["PHASE2_JSON"])
+
+def load_phase1():
+    if phase1_out.exists():
+        try:
+            return json.loads(phase1_out.read_text())
+        except json.JSONDecodeError:
+            pass
+    return json.loads(phase1_cache.read_text())
+
+phase1_payload = load_phase1()
+compact = phase1_payload.get("data", phase1_payload)
+expanded = expand_compact_payload(compact)
+source_summary = build_source_summary(expanded)
+
+sections_obj = json.loads(phase2_out.read_text())
+if "sections" in sections_obj:
+    sections = sections_obj.get("sections") or {}
+    render_hints = sections_obj.get("render_hints") or {}
+else:
+    sections = sections_obj
+    render_hints = {}
+sections = normalize_sections(sections)
+
+report_obj = {
+    "schema_version": "dev-activity-report.v1",
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+    "run": {
+        "phase1_fingerprint": phase1_payload.get("fp") or phase1_payload.get("fingerprint", ""),
+        "cache_hit": bool(phase1_payload.get("cache_hit", False)),
+        "models": {
+            "phase1": os.environ.get("PHASE1_MODEL", ""),
+            "phase15": os.environ.get("PHASE15_MODEL", ""),
+            "phase2": os.environ.get("PHASE2_MODEL", ""),
+        },
+    },
+    "source_summary": source_summary,
+    "sections": sections,
+    "render_hints": render_hints,
+    "source_payload": compact if os.environ.get("INCLUDE_SOURCE_PAYLOAD", "false").lower() == "true" else None,
+}
+phase2_json.write_text(json.dumps(report_obj, separators=(",", ":")), encoding="utf-8")
+PY
+
+python3 "$SKILL_DIR/scripts/render_report.py" \
+  --input "$PHASE2_JSON" \
+  --output-dir "$OUTPUT_DIR" \
+  --base-name "$BASE_NAME" \
+  --formats "$REPORT_OUTPUT_FORMATS"
 
 echo "== Phase 3 ($PHASE3_MODEL): cache verification =="
 "$CODEX_BIN" exec -m "$PHASE3_MODEL" --approval never --sandbox "$REPORT_SANDBOX" - <<EOF

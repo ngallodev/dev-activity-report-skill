@@ -25,10 +25,11 @@ A Claude Code skill that scans your local development environment — git repos,
 
 1. **Phase 1 — Data gathering** (`phase1_runner.py` via Bash subagent, `${PHASE1_MODEL}`): scans the configured paths, computes content-based fingerprints (git-tracked files only), and emits a **compact JSON payload** (abbreviated keys documented in `docs/PAYLOAD_REFERENCE.md`). Cached runs short-circuit by re-emitting the previous payload.
 2. **Phase 1.5 — Draft synthesis** (`phase1_5_draft.py`, `${PHASE15_MODEL}`): cheap model creates a rough bullet draft from the Phase 1 JSON. Falls back to a deterministic heuristic if no API key.
-3. **Phase 2 — Polish** (`${PHASE2_MODEL}`): single-shot prompt that ingests the compact JSON + draft and produces the final report with fixed headings (Overview, Key Changes, Recommendations, Resume Bullets, LinkedIn, Highlights, Timeline, Tech Inventory). No raw git logs are ever loaded.
-4. **Phase 3 — Cache writes** (`${PHASE3_MODEL}`): writes per-project `.dev-report-cache.md` files using the new content-hash fingerprints to keep future scans warm.
+3. **Phase 2 — Structured Analysis** (`${PHASE2_MODEL}`): single-shot prompt that ingests the compact JSON + draft and outputs **JSON only** (no Markdown). No raw git logs are ever loaded.
+4. **Phase 2.5 — Render** (script): `scripts/render_report.py` consumes the Phase 2 JSON and renders `md`/`html` based on `REPORT_OUTPUT_FORMATS`.
+5. **Phase 3 — Cache writes** (`${PHASE3_MODEL}`): writes per-project `.dev-report-cache.md` files using the new content-hash fingerprints to keep future scans warm.
 
-**Result:** A timestamped `.md` file at `~/dev-activity-report-YYYYMMDDTHHMMSSZ.md` (UTC datetime) plus token_economics/build logs capturing Phase 1.5 + Phase 2 usage. Consecutive reports get unique filenames and won't overwrite each other.
+**Result:** A timestamped JSON report at `~/dev-activity-report-YYYYMMDDTHHMMSSZ.json` plus rendered outputs (`.md`, `.html`) based on `REPORT_OUTPUT_FORMATS`. Token/build logs are written under `REPORT_OUTPUT_DIR` by default. Consecutive runs get unique filenames and won’t overwrite each other.
 
 ---
 
@@ -78,7 +79,7 @@ Real measurements from a ~55-project environment (21 `.not-my-work`, 9 `.skip-fo
 
 **~65% total cost savings** from delegating off Sonnet. The warm Phase 1 is effectively free at Haiku rates — Phase 2 Sonnet synthesis (~$0.025) is the irreducible cost floor regardless of caching.
 
-Token logging is now automated: Phase 1.5 and Phase 2 append JSON lines to `token_economics.log` and summary lines to `build.log` via `scripts/token_logger.py`.
+Token logging is now automated: Phase 1.5 and Phase 2 append JSON lines to `token_economics.log` and summary lines to `build.log` via `scripts/token_logger.py` (defaults to `REPORT_OUTPUT_DIR`, override with `TOKEN_LOG_PATH` / `BUILD_LOG_PATH`).
 
 The `.skip-for-now` marker had a meaningful impact on its own: dropping 9 directories reduced Phase 1 from 18,304 tokens (~$0.024) to 8,233 (~$0.010) — a 55% reduction in data-gathering cost, independent of caching.
 
@@ -119,7 +120,7 @@ Fingerprints are now **content hashes of git-tracked files** (non-git directorie
 `phase1_runner.py` also builds a global fingerprint across ownership markers, project directories, extras, Claude data, Codex sessions, and the insights log. The fingerprint and the structured JSON payload are stored in `.phase1-cache.json`; if a rerun finds no changes it simply reprints that JSON (Haiku never re-traverses the tree). The upshot: warm runs emit exactly one JSON object and trimming Phase 1 output costs almost nothing.
 
 ### Compact payload + cheap draft
-Phase 1 emits abbreviated JSON keys (documented in `docs/PAYLOAD_REFERENCE.md`) with only the essentials: commit counts, shortstats, changed files, and derived themes. Phase 1.5 uses a low-cost model to turn that JSON into a rough draft, which Phase 2 simply polishes — minimizing Sonnet tokens.
+Phase 1 emits abbreviated JSON keys (documented in `skills/dev-activity-report-skill/references/PAYLOAD_REFERENCE.md`) with only the essentials: commit counts, shortstats, changed files, and derived themes. Phase 1.5 uses a low-cost model to turn that JSON into a rough draft, and Phase 2 emits structured JSON — minimizing Sonnet tokens.
 
 ### Codex session analytics
 Scans `~/.codex/sessions/` to surface Codex usage patterns — sessions by month, active project directories, installed skills, configured model — and includes them in the report and cache.
@@ -183,6 +184,8 @@ EXTRA_SCAN_DIRS=/usr/local/lib/mydb
 # Where to write reports/logs (defaults to ~ if omitted)
 REPORT_OUTPUT_DIR=~
 REPORT_SANDBOX=workspace-write
+REPORT_OUTPUT_FORMATS=md,html
+INCLUDE_SOURCE_PAYLOAD=false
 
 # Your name/company for the resume header
 RESUME_HEADER=Jane Smith Consulting, Jan 2024 – Present
@@ -193,8 +196,10 @@ PHASE1_MODEL=haiku
 PHASE15_MODEL=haiku
 PHASE2_MODEL=sonnet
 PHASE3_MODEL=gpt-5.1-codex-mini
-TOKEN_LOG_PATH=token_economics.log
-BUILD_LOG_PATH=build.log
+# Optional log paths (defaults to REPORT_OUTPUT_DIR if omitted)
+# TOKEN_LOG_PATH=~/token_economics.log
+# BUILD_LOG_PATH=~/build.log
+# BENCHMARK_LOG_PATH=~/benchmarks.jsonl
 # Subscription auth (leave keys blank when true)
 SUBSCRIPTION_MODE=true
 ```
@@ -211,7 +216,7 @@ The Codex/Claude paths and model selections can stay at their defaults unless yo
 /dev-activity-report
 ```
 
-That's it. Claude reads your `.env`, delegates data gathering to Haiku, synthesizes the report, delegates cache writes to Codex, and saves the output to `~/dev-activity-report-YYYYMMDDTHHMMSSZ.md` (UTC datetime format ensures unique filenames for consecutive runs).
+That's it. Claude reads your `.env`, delegates data gathering to Haiku, synthesizes a JSON report, renders `md`/`html`, delegates cache writes to Codex, and saves outputs to `~/dev-activity-report-YYYYMMDDTHHMMSSZ.{json,md,html}` based on `REPORT_OUTPUT_FORMATS`.
 
 ### Sandbox + workspace behavior
 
@@ -232,9 +237,10 @@ python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground
 This script:
 - Runs `phase1_runner.py` as a subprocess (same logic, no overhead)
 - Calls `phase1_5_draft.py` for the Haiku draft; falls back to `claude --model haiku -p` if no `openai` SDK installed
-- Calls `claude --model sonnet -p` directly for Phase 2 (no `codex exec` wrapper)
+- Calls `claude --model sonnet -p` directly for Phase 2 and expects **JSON only**
+- Renders outputs via `scripts/render_report.py` to `md`/`html` based on `REPORT_OUTPUT_FORMATS`
 - Runs Phase 3 cache verification inline in Python
-- Appends timing and token usage to `references/benchmarks.jsonl`
+- Appends timing and token usage to `BENCHMARK_LOG_PATH` (default: `REPORT_OUTPUT_DIR/benchmarks.jsonl`)
 - Sends a desktop notification on completion
 
 **Requires**: `claude` CLI on `PATH` (authenticated). Does not require the `anthropic` or `openai` Python packages.
@@ -247,7 +253,7 @@ All runs measured on this machine with `haiku` for Phases 1 and 1.5, `sonnet` fo
 |---|---|
 | Phase 1 (data gather) | **0.69–0.87s** |
 | Phase 1.5 (Haiku draft via `claude -p`) | **7.3–9.0s** |
-| Phase 2 (Sonnet report via `claude -p`) | **27–34s** |
+| Phase 2 (Sonnet JSON synthesis via `claude -p`) | **27–34s** |
 | Phase 3 (cache verify, inline Python) | **<0.01s** |
 | **Total wall time** | **37–43s** |
 
@@ -263,7 +269,7 @@ The fingerprinter (`phase1_runner.py` and the Claude CLI version) uses `.dev-rep
 
 Key excluded patterns:
 - `*.log`, `build.log`, `references/examples/token_economics.log` — runtime logs
-- `references/benchmarks.jsonl` — benchmark output
+- `benchmarks.jsonl` — benchmark output (default in `REPORT_OUTPUT_DIR`)
 - `todos/*`, `tasks/*`, `projects/*` — per-session Claude Code artifacts
 - `debug/*`, `*.txt` — Claude Code debug files
 - `ccusage-blocks.json`, `stats-cache.json` — billing/stats cache
@@ -334,11 +340,11 @@ dev-activity-report-skill/
 ├── SKILL.md                          # Core skill instructions
 ├── references/examples/.env.example  # Config template (copy to .env)
 ├── .gitignore                        # Ignores .env
+├── scripts/render_report.py          # Render JSON to md/html
 └── references/
     ├── token-economics.md            # Cost benchmarks and real test results
     ├── build-history.md              # Design chronicle — how this skill was built
-    ├── dev-activity-report-2026-02-13.md    # Example report (v1, pre-ownership markers)
-    └── dev-activity-report-2026-02-13-v2.md # Example report (v2, ownership-corrected)
+    └── PAYLOAD_REFERENCE.md          # Compact key reference
 ```
 
 Files written to your environment during use:
@@ -347,7 +353,9 @@ Files written to your environment during use:
 <APPS_DIR>/<project>/.not-my-work            # Ownership marker (you create)
 <APPS_DIR>/<project>/.forked-work            # Fork contribution notes
 ~/.codex/.dev-report-cache.md               # Codex session analytics cache
-~/dev-activity-report-YYYYMMDDTHHMMSSZ.md         # Report output (UTC datetime, unique per run)
+~/dev-activity-report-YYYYMMDDTHHMMSSZ.json       # Structured JSON output (UTC datetime)
+~/dev-activity-report-YYYYMMDDTHHMMSSZ.md         # Rendered Markdown (if enabled)
+~/dev-activity-report-YYYYMMDDTHHMMSSZ.html       # Rendered HTML (if enabled)
 ```
 
 ---

@@ -6,7 +6,8 @@ Phases:
   0  — optional insights snapshot check
   1  — phase1_runner.py  (data gather, fingerprint, cache)
   1.5 — phase1_5_draft.py (cheap model bullet draft; uses claude -p if no SDK)
-  2  — claude --model <model> -p (polished report via claude CLI)
+  2  — claude --model <model> -p (JSON-only analysis via claude CLI)
+  2.5 — render_report.py (md/html render from JSON)
   3  — cache verification summary (inline Python)
 
 Usage:
@@ -69,6 +70,152 @@ def notify(message: str) -> None:
         except (FileNotFoundError, subprocess.CalledProcessError):
             pass
     print(f"[notify] {message}", file=sys.stderr)
+
+
+def slugify(value: str) -> str:
+    out = []
+    for ch in value.lower().strip():
+        if ch.isalnum():
+            out.append(ch)
+        elif ch in (" ", "_", "-", "."):
+            if out and out[-1] != "-":
+                out.append("-")
+    return "".join(out).strip("-")
+
+
+def expand_compact_payload(compact: dict) -> dict:
+    projects = []
+    for proj in compact.get("p", []) or []:
+        projects.append(
+            {
+                "name": proj.get("n", ""),
+                "path": proj.get("pt", ""),
+                "status": proj.get("st", "orig"),
+                "commit_count": int(proj.get("cc", 0) or 0),
+                "file_changes": proj.get("sd", ""),
+                "changed_files": proj.get("fc", []) or [],
+                "commit_messages": proj.get("msg", []) or [],
+                "themes": proj.get("hl", []) or [],
+                "fingerprint": proj.get("fp", ""),
+            }
+        )
+
+    ownership_markers = []
+    for marker in compact.get("mk", []) or []:
+        ownership_markers.append(
+            {
+                "marker": marker.get("m", ""),
+                "path": marker.get("p", ""),
+            }
+        )
+
+    extra_scan_dirs = []
+    for item in compact.get("x", []) or []:
+        extra_scan_dirs.append(
+            {
+                "path": item.get("p", ""),
+                "exists": bool(item.get("exists", False)),
+                "is_git": bool(item.get("git", False)),
+                "key_files": item.get("kf", []) or [],
+                "fingerprint": item.get("fp", ""),
+            }
+        )
+
+    claude = compact.get("cl", {}) or {}
+    codex = compact.get("cx", {}) or {}
+    stats = compact.get("stats", {}) or {}
+
+    return {
+        "apps_dir": compact.get("ad", ""),
+        "projects": projects,
+        "ownership_markers": ownership_markers,
+        "extra_scan_dirs": extra_scan_dirs,
+        "claude_home": {
+            "skills": claude.get("sk", []) or [],
+            "hooks": claude.get("hk", []) or [],
+            "agents": claude.get("ag", []) or [],
+        },
+        "codex_home": {
+            "session_months": codex.get("sm", {}) or {},
+            "active_workdirs": codex.get("cw", []) or [],
+            "skills": codex.get("sk", []) or [],
+        },
+        "insights": compact.get("ins", []) or [],
+        "stats": {
+            "total": stats.get("total"),
+            "stale": stats.get("stale"),
+            "cached": stats.get("cached"),
+        },
+    }
+
+
+def build_source_summary(expanded: dict) -> dict:
+    projects = []
+    for proj in expanded.get("projects", []) or []:
+        name = proj.get("name") or Path(proj.get("path", "")).name
+        proj_id = slugify(name) if name else ""
+        projects.append(
+            {
+                "id": proj_id,
+                "name": name,
+                "path": proj.get("path", ""),
+                "status": proj.get("status", "orig"),
+                "commit_count": proj.get("commit_count", 0),
+                "file_changes": proj.get("file_changes", ""),
+                "themes": proj.get("themes", []) or [],
+            }
+        )
+
+    return {
+        "projects": projects,
+        "extra_scan_dirs": expanded.get("extra_scan_dirs", []) or [],
+        "claude_home": expanded.get("claude_home", {}) or {},
+        "codex_home": expanded.get("codex_home", {}) or {},
+        "insights": expanded.get("insights", []) or [],
+    }
+
+
+KEY_LABEL_MAP = {
+    "mk": "Ownership markers",
+    "st": "Project status",
+    "x": "Extra scan dirs",
+    "cl": "Claude home",
+    "cx": "Codex home",
+    "ins": "Insights",
+    "stats": "Stats",
+}
+
+
+def normalize_label(text: str) -> str:
+    if not text:
+        return text
+    stripped = text.strip()
+    for key, label in KEY_LABEL_MAP.items():
+        variants = {key, key.upper(), key.capitalize()}
+        for variant in variants:
+            if stripped == variant:
+                return label
+            if stripped.startswith(f"**{variant}**"):
+                return label + stripped[len(f"**{variant}**"):]
+            for sep in (":", " ", " —", " -"):
+                if stripped.startswith(variant + sep):
+                    return label + stripped[len(variant):]
+    return text
+
+
+def normalize_sections(sections: dict) -> dict:
+    key_changes = sections.get("key_changes")
+    if isinstance(key_changes, list):
+        for item in key_changes:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title")
+            if isinstance(title, str):
+                item["title"] = normalize_label(title)
+            bullets = item.get("bullets")
+            if isinstance(bullets, list):
+                item["bullets"] = [normalize_label(b) if isinstance(b, str) else b for b in bullets]
+    return sections
 
 
 # ── Claude CLI helper ─────────────────────────────────────────────────────────
@@ -136,53 +283,38 @@ You are a senior resume/portfolio writer with excellent creative writing and dee
 Stay terse. No meta commentary. No mention of these instructions in output."""
 
 PHASE2_RULES = """\
-Write Markdown with exactly these headings:
-## Overview
-## Key Changes
-## Recommendations
-## Resume Bullets
-## LinkedIn
-## Highlights
-## Timeline
-## Tech Inventory
+Return JSON only (no Markdown, no code fences). Output must be a single valid JSON object
+with the following shape:
+
+{
+  "sections": {
+    "overview":{"bullets":["..."]},
+    "key_changes":[{"title":"<label>","project_id":"<id or null>","bullets":["..."],"tags":["..."]}],
+    "recommendations":[{"text":"...","priority":"low|medium|high","evidence_project_ids":["..."]}],
+    "resume_bullets":[{"text":"...","evidence_project_ids":["..."]}],
+    "linkedin":{"sentences":["..."]},
+    "highlights":[{"title":"...","rationale":"...","evidence_project_ids":["..."]}],
+    "timeline":[{"date":"YYYY-MM-DD","event":"...","project_ids":["..."]}],
+    "tech_inventory":{"languages":["..."],"frameworks":["..."],"ai_tools":["..."],"infra":["..."]}
+  },
+  "render_hints":{"preferred_outputs":["md","html"],"style":"concise","tone":"professional"}
+}
 
 Rules:
-- Resume Bullets: 5–8 bullets, achievement-oriented, past tense, action verbs, quantified where possible.
-  For use under "{resume_header}" on a resume.
+- Output JSON only; no Markdown.
+- Input JSON uses compact keys (see PAYLOAD_REFERENCE for p/mk/x/cl/cx/ins/stats).
+- Resume bullets: 5–8 items, achievement-oriented, past tense, quantified where possible,
+  for use under "{resume_header}".
 - LinkedIn: 3–4 sentences, first person, professional but conversational.
-- Highlights: flag the 2–3 most resume-worthy items (engineering depth + practical AI integration).
+- Highlights: 2–3 items, engineering depth + practical AI integration.
 - Timeline: 5 rows, most recent first.
 - Tech Inventory: languages, frameworks, AI tools, infra.
 - Keep bullets short; no meta commentary.
-- Use markers mk + st to separate original vs forked projects.
-- Pull AI workflow patterns from ins / cx / cl keys.
-
-Few-shot example input:
-Summary JSON: {{"p":[{{"n":"rag-api","cc":3,"fc":["api/router.py"],"hl":["perf","ai-workflow"]}}],"mk":[],"cx":{{"sm":{{"2026-02":4}}}},"ins":[]}}
-Draft bullets: - rag-api: 3 commits; themes perf, ai-workflow
-
-Few-shot example output:
-## Overview
-- Refreshed rag-api with perf + AI workflow tweaks.
-## Key Changes
-- rag-api: perf-focused tweaks across api/router.py.
-## Recommendations
-- Ship perf benchmarks.
-## Resume Bullets
-- Boosted rag-api throughput by tightening router hot paths and validating AI pipeline hooks.
-## LinkedIn
-- Tuned rag-api for faster routes and smoother AI integration.
-## Highlights
-- Perf + AI workflow alignment.
-## Timeline
-- 2026-02: rag-api perf/AI tune-up.
-## Tech Inventory
-- Languages: Python
 """
 
 
 def call_phase2(
-    data_json: str,
+    compact_json: str,
     draft_text: str,
     env: dict[str, str],
     claude_bin: str,
@@ -191,7 +323,7 @@ def call_phase2(
     rules = PHASE2_RULES.format(resume_header=resume_header)
     prompt = (
         f"{rules}\n\n"
-        f"Summary JSON (compact):\n{data_json}\n\n"
+        f"Summary JSON (compact):\n{compact_json}\n\n"
         f"Draft bullets:\n{draft_text}"
     )
     model = env.get("PHASE2_MODEL", "sonnet")
@@ -237,23 +369,43 @@ def phase3_verify(skill_dir: Path) -> None:
     for proj in data.get("data", {}).get("p", []):
         path = Path(proj.get("pt", ""))
         cache = path / ".dev-report-cache.md"
-        header = cache.read_text().splitlines()[0] if cache.exists() else "missing"
+        if cache.exists():
+            lines = cache.read_text().splitlines()
+            header = lines[0] if lines else "empty"
+        else:
+            header = "missing"
         print(f"  {proj.get('n', 'project')}: {header}", flush=True)
 
 
 # ── Token logger wrapper ──────────────────────────────────────────────────────
+def normalize_usage(usage: dict) -> tuple[int, int]:
+    """Map Claude CLI usage fields to (prompt_tokens, completion_tokens)."""
+    if "prompt_tokens" in usage or "completion_tokens" in usage:
+        prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+        completion_tokens = int(usage.get("completion_tokens", 0) or 0)
+        return prompt_tokens, completion_tokens
+
+    cache_create = int(usage.get("cache_creation_input_tokens", 0) or 0)
+    cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
+    input_tokens = int(usage.get("input_tokens", 0) or 0)
+    prompt_tokens = cache_create + cache_read if (cache_create or cache_read) else input_tokens
+    completion_tokens = int(usage.get("output_tokens", 0) or 0)
+    return prompt_tokens, completion_tokens
+
+
 def log_tokens(phase: str, model: str, usage: dict, env: dict[str, str]) -> None:
     sys.path.insert(0, str(SCRIPT_DIR))
     try:
         from token_logger import append_usage  # type: ignore
         price_in_key = "PRICE_PHASE15_IN" if phase == "1.5" else "PRICE_PHASE2_IN"
         price_out_key = "PRICE_PHASE15_OUT" if phase == "1.5" else "PRICE_PHASE2_OUT"
+        prompt_tokens, completion_tokens = normalize_usage(usage)
         append_usage(
             skill_dir=SKILL_DIR,
             phase=phase,
             model=model,
-            prompt_tokens=int(usage.get("prompt_tokens", 0) or 0),
-            completion_tokens=int(usage.get("completion_tokens", 0) or 0),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             price_in=float(env.get(price_in_key, 0) or 0),
             price_out=float(env.get(price_out_key, 0) or 0),
         )
@@ -270,8 +422,9 @@ def record_benchmark(
     usage2: dict,
     report_path: Path,
     skill_dir: Path,
+    env: dict[str, str],
 ) -> None:
-    """Append a benchmark record to references/benchmarks.jsonl."""
+    """Append a benchmark record to BENCHMARK_LOG_PATH (default: REPORT_OUTPUT_DIR/benchmarks.jsonl)."""
     phase_keys = ("phase1", "phase15", "phase2", "phase3")
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -283,7 +436,12 @@ def record_benchmark(
         "phase2_tokens": usage2,
         "report": str(report_path),
     }
-    bmark_file = skill_dir / "references" / "benchmarks.jsonl"
+    bmark_override = env.get("BENCHMARK_LOG_PATH")
+    if bmark_override:
+        bmark_file = Path(expand(bmark_override))
+    else:
+        output_dir = Path(expand(env.get("REPORT_OUTPUT_DIR", "~")))
+        bmark_file = output_dir / "benchmarks.jsonl"
     bmark_file.parent.mkdir(parents=True, exist_ok=True)
     with bmark_file.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, separators=(",", ":")) + "\n")
@@ -311,7 +469,12 @@ def run(foreground: bool = True) -> int:
     output_dir = Path(expand(env.get("REPORT_OUTPUT_DIR", "~")))
     prefix = env.get("REPORT_FILENAME_PREFIX", "dev-activity-report")
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    report_out = output_dir / f"{prefix}-{ts}.md"
+    base_name = f"{prefix}-{ts}"
+    report_json = output_dir / f"{base_name}.json"
+    output_formats = [f.strip().lower() for f in env.get("REPORT_OUTPUT_FORMATS", "md").split(",") if f.strip()]
+    if not output_formats:
+        output_formats = ["md"]
+    include_source_payload = env.get("INCLUDE_SOURCE_PAYLOAD", "false").lower() == "true"
 
     if not output_dir.exists():
         print(f"Output directory does not exist: {output_dir}", file=sys.stderr)
@@ -390,6 +553,7 @@ def run(foreground: bool = True) -> int:
     cache_hit = phase1_payload.get("cache_hit", False)
     fp = phase1_payload.get("fp", "n/a")
     print(f"  cache_hit={cache_hit}, fp={fp[:16]}…, elapsed={timings['phase1']:.2f}s", flush=True)
+    compact_payload = phase1_payload.get("data", phase1_payload)
 
     # ── Phase 1.5: cheap draft ────────────────────────────────────────────────
     phase15_model = env.get("PHASE15_MODEL", phase1_model)
@@ -448,9 +612,9 @@ def run(foreground: bool = True) -> int:
     phase2_model = env.get("PHASE2_MODEL", "sonnet")
     print(f"== Phase 2 ({phase2_model}): report ==", flush=True)
     t0 = time.monotonic()
-    data_json = json.dumps(phase1_payload.get("data", phase1_payload), separators=(",", ":"))
+    compact_json = json.dumps(compact_payload, separators=(",", ":"))
     try:
-        report_text, usage2 = call_phase2(data_json, draft_text, env, claude_bin)
+        report_text, usage2 = call_phase2(compact_json, draft_text, env, claude_bin)
     except Exception as exc:
         print(f"Phase 2 failed: {exc}", file=sys.stderr)
         return 1
@@ -458,9 +622,69 @@ def run(foreground: bool = True) -> int:
     print(f"  tokens={usage2}, elapsed={timings['phase2']:.2f}s", flush=True)
     log_tokens("2", phase2_model, usage2, env)
 
-    # Write report
-    report_out.write_text(report_text, encoding="utf-8")
-    print(f"  Report written: {report_out}", flush=True)
+    # Parse Phase 2 JSON and write structured output
+    try:
+        phase2_obj = json.loads(report_text)
+    except json.JSONDecodeError as exc:
+        print(f"Phase 2 output was not valid JSON: {exc}", file=sys.stderr)
+        return 1
+
+    if not isinstance(phase2_obj, dict):
+        print("Phase 2 output JSON must be an object.", file=sys.stderr)
+        return 1
+
+    if "sections" in phase2_obj:
+        sections = phase2_obj.get("sections") or {}
+        render_hints = phase2_obj.get("render_hints") or {}
+    else:
+        if any(k in phase2_obj for k in ("overview", "key_changes", "recommendations", "resume_bullets",
+                                         "linkedin", "highlights", "timeline", "tech_inventory")):
+            sections = phase2_obj
+            render_hints = {}
+        else:
+            print("Phase 2 output missing 'sections' block.", file=sys.stderr)
+            return 1
+
+    expanded_payload = expand_compact_payload(compact_payload)
+    source_summary = build_source_summary(expanded_payload)
+    sections = normalize_sections(sections)
+
+    report_obj = {
+        "schema_version": "dev-activity-report.v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "run": {
+            "phase1_fingerprint": fp,
+            "cache_hit": bool(cache_hit),
+            "models": {"phase1": phase1_model, "phase15": phase15_model, "phase2": phase2_model},
+        },
+        "source_summary": source_summary,
+        "sections": sections,
+        "render_hints": render_hints,
+        "source_payload": compact_payload if include_source_payload else None,
+    }
+    report_json.write_text(json.dumps(report_obj, separators=(",", ":")), encoding="utf-8")
+    print(f"  Report JSON written: {report_json}", flush=True)
+
+    # ── Phase 2.5: render outputs ─────────────────────────────────────────────
+    print(f"== Phase 2.5: render outputs ({', '.join(output_formats)}) ==", flush=True)
+    render_cmd = [
+        sys.executable,
+        str(SCRIPT_DIR / "render_report.py"),
+        "--input", str(report_json),
+        "--output-dir", str(output_dir),
+        "--base-name", base_name,
+        "--formats", ",".join(output_formats),
+    ]
+    result_render = subprocess.run(render_cmd, capture_output=True, text=True)
+    if result_render.returncode != 0:
+        if result_render.stderr:
+            print(result_render.stderr.strip(), file=sys.stderr)
+        print("Phase 2.5 render failed.", file=sys.stderr)
+        return 1
+    for fmt in output_formats:
+        out_path = output_dir / f"{base_name}.{fmt}"
+        if out_path.exists():
+            print(f"  Rendered: {out_path}", flush=True)
 
     # ── Phase 3: cache verification ───────────────────────────────────────────
     phase3_model = env.get("PHASE3_MODEL", "haiku")
@@ -479,8 +703,15 @@ def run(foreground: bool = True) -> int:
         flush=True,
     )
 
-    record_benchmark(run_label, timings, cache_hit, usage15, usage2, report_out, SKILL_DIR)
-    notify(f"Report completed: {report_out}")
+    report_path_for_benchmark = report_json
+    if "md" in output_formats:
+        report_path_for_benchmark = output_dir / f"{base_name}.md"
+    record_benchmark(run_label, timings, cache_hit, usage15, usage2, report_path_for_benchmark, SKILL_DIR, env)
+
+    notify_path = report_path_for_benchmark
+    if output_formats:
+        notify_path = output_dir / f"{base_name}.{output_formats[0]}"
+    notify(f"Report completed: {notify_path}")
     return 0
 
 
@@ -493,6 +724,12 @@ def main() -> None:
     if not args.foreground:
         env = load_env()
         log_dir = Path(expand(env.get("REPORT_OUTPUT_DIR", "~")))
+        if not log_dir.exists():
+            print(f"Output directory does not exist: {log_dir}", file=sys.stderr)
+            sys.exit(1)
+        if not os.access(log_dir, os.W_OK):
+            print(f"Output directory not writable: {log_dir}", file=sys.stderr)
+            sys.exit(1)
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         log_file = log_dir / f"pipeline-run-{ts}.log"
         with open(log_file, "w") as lf:

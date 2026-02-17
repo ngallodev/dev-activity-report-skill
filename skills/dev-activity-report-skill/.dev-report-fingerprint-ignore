@@ -27,7 +27,8 @@ debug/*.txt
 
 # ── Claude usage/billing data that updates continuously ──────────────────────
 ccusage-blocks.json
-usage-data/*
+usage-data/facets/*
+usage-data/session-meta/*
 
 # ── Credential and token files (also sensitive — never hash) ─────────────────
 .credentials.json
@@ -49,6 +50,7 @@ projects/*
 plugins/install-counts-cache.json
 plugins/installed_plugins.json
 plugins/known_marketplaces.json
+plugins/*
 # settings.json may update during sessions (model selection, etc.)
 settings.json
 # package-lock.json and cache may change on updates

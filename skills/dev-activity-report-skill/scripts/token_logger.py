@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,10 @@ def load_env(skill_dir: Path) -> dict[str, str]:
     return env
 
 
+def expand_path(value: str) -> Path:
+    return Path(os.path.abspath(os.path.expandvars(os.path.expanduser(value))))
+
+
 def append_usage(
     skill_dir: Path,
     phase: str,
@@ -44,8 +49,9 @@ def append_usage(
     """Append a JSONL record and return computed cost."""
 
     env = load_env(skill_dir)
-    token_log = Path(env.get("TOKEN_LOG_PATH", "token_economics.log"))
-    build_log = Path(env.get("BUILD_LOG_PATH", "build.log"))
+    report_dir = expand_path(env.get("REPORT_OUTPUT_DIR", "~"))
+    token_log = expand_path(env.get("TOKEN_LOG_PATH", str(report_dir / "token_economics.log")))
+    build_log = expand_path(env.get("BUILD_LOG_PATH", str(report_dir / "build.log")))
     if log_path:
         token_log = log_path
     if build_log_path:

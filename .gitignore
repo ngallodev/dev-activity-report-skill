@@ -12,3 +12,7 @@ __pycache__/
 *.pyc
 pipeline-run-*.log
 references/benchmarks.jsonl
+benchmarks.jsonl
+planning-docs/*
+build.log
+code-review-report.md
