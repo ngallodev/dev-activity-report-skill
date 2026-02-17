@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,18 +20,58 @@ try:
 except ImportError:  # pragma: no cover
     dotenv_values = None
 
+try:
+    import pygit2  # type: ignore
+except ImportError:  # pragma: no cover
+    pygit2 = None
+
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CACHE_FILE = SKILL_DIR / ".phase1-cache.json"
 INSIGHTS_LOG = SKILL_DIR / "references" / "examples" / "insights" / "insights-log.md"
+FP_IGNORE_FILE = SKILL_DIR / ".dev-report-fingerprint-ignore"
+
+
+def load_fp_ignore_patterns() -> list[str]:
+    """Load glob patterns from .dev-report-fingerprint-ignore (one per line, # comments ok)."""
+    if not FP_IGNORE_FILE.exists():
+        return []
+    patterns = []
+    for line in FP_IGNORE_FILE.read_text().splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            patterns.append(stripped)
+    return patterns
+
+
+def _matches_ignore(rel_path: str, patterns: list[str]) -> bool:
+    """Return True if rel_path matches any ignore glob pattern.
+
+    Supports:
+    - Standard fnmatch against the full relative path
+    - fnmatch against the filename alone
+    - Directory prefix: pattern ending with '/*' is treated as a prefix match
+      so 'todos/*' matches 'todos/uuid/1.json' at any depth.
+    """
+    rel_posix = rel_path.replace(os.sep, "/")
+    name = Path(rel_path).name
+    for pat in patterns:
+        if fnmatch.fnmatch(rel_posix, pat) or fnmatch.fnmatch(name, pat):
+            return True
+        # Treat "dir/*" as a recursive prefix: anything under "dir/"
+        if pat.endswith("/*"):
+            prefix = pat[:-2]  # strip trailing /*
+            if rel_posix == prefix or rel_posix.startswith(prefix + "/"):
+                return True
+    return False
 
 DEFAULTS: dict[str, str] = {
-    "APPS_DIR": "/lump/apps",
-    "EXTRA_SCAN_DIRS": "/usr/local/lib/mariadb",
+    "APPS_DIR": "~/projects",
+    "EXTRA_SCAN_DIRS": "",
     "CODEX_HOME": "~/.codex",
     "CLAUDE_HOME": "~/.claude",
     "REPORT_OUTPUT_DIR": "~",
     "REPORT_FILENAME_PREFIX": "dev-activity-report",
-    "RESUME_HEADER": "ngallodev Software, Jan 2025 – Present",
+    "RESUME_HEADER": "Your Name, Jan 2025 – Present",
     "PHASE1_MODEL": "haiku",
     "PHASE15_MODEL": "haiku",
     "PHASE2_MODEL": "sonnet",
@@ -46,6 +87,7 @@ MAX_CHANGED_FILES = 10
 MAX_COMMIT_MESSAGES = 6
 MAX_KEY_FILES = 6
 MAX_ACTIVE_CWDS = 20
+MAX_HASH_FILE_SIZE = 100 * 1024 * 1024  # 100 MB — skip content hash for files larger than this
 
 
 def load_env() -> dict[str, str]:
@@ -84,6 +126,8 @@ def parse_paths(raw: str) -> list[Path]:
 def hash_file(path: Path) -> str:
     h = hashlib.sha256()
     try:
+        if path.stat().st_size > MAX_HASH_FILE_SIZE:
+            return hashlib.sha256(b"LARGE_FILE:" + str(path).encode()).hexdigest()
         with path.open("rb") as fh:
             for chunk in iter(lambda: fh.read(1024 * 1024), b""):
                 h.update(chunk)
@@ -99,6 +143,9 @@ def hash_paths(base: Path, files: Sequence[str]) -> str:
         full = base / rel
         if full.is_file():
             try:
+                if full.stat().st_size > MAX_HASH_FILE_SIZE:
+                    h.update(b"LARGE_FILE")
+                    continue
                 with full.open("rb") as fh:
                     for chunk in iter(lambda: fh.read(1024 * 1024), b""):
                         h.update(chunk)
@@ -108,6 +155,15 @@ def hash_paths(base: Path, files: Sequence[str]) -> str:
 
 
 def git_tracked_files(path: Path) -> list[str]:
+    if pygit2 is not None:
+        try:
+            repo = pygit2.Repository(str(path))
+            repo.index.read()
+            return [entry.path for entry in repo.index]
+        except Exception as exc:  # pygit2.GitError or similar
+            print(f"warning: pygit2 index read failed for {path}: {exc}", file=sys.stderr)
+            return []
+    # fallback: subprocess
     try:
         result = subprocess.run(
             ["git", "-C", str(path), "ls-files", "-z"],
@@ -117,13 +173,23 @@ def git_tracked_files(path: Path) -> list[str]:
             env=os.environ,
         )
         if result.returncode != 0:
+            stderr = result.stderr.decode("utf-8", errors="ignore").strip()
+            if stderr:
+                print(f"warning: git ls-files failed for {path}: {stderr}", file=sys.stderr)
             return []
         return [p for p in result.stdout.decode("utf-8", errors="ignore").split("\0") if p]
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"warning: git ls-files error for {path}: {exc}", file=sys.stderr)
         return []
 
 
 def is_git_repo(path: Path) -> bool:
+    if pygit2 is not None:
+        try:
+            pygit2.discover_repository(str(path))
+            return True
+        except Exception:
+            return False
     try:
         result = subprocess.run(
             ["git", "-C", str(path), "rev-parse", "--is-inside-work-tree"],
@@ -138,6 +204,12 @@ def is_git_repo(path: Path) -> bool:
 
 
 def git_head(path: Path) -> str:
+    if pygit2 is not None:
+        try:
+            repo = pygit2.Repository(str(path))
+            return str(repo.head.target)
+        except Exception:
+            return ""
     try:
         result = subprocess.run(
             ["git", "-C", str(path), "rev-parse", "HEAD"],
@@ -153,6 +225,9 @@ def git_head(path: Path) -> str:
 
 def hash_git_repo(path: Path) -> str:
     files = git_tracked_files(path)
+    ignore = load_fp_ignore_patterns()
+    if ignore:
+        files = [f for f in files if not _matches_ignore(f, ignore)]
     return hash_paths(path, files)
 
 
@@ -167,11 +242,14 @@ def hash_non_git_dir(path: Path, allowed_exts: set[str], max_depth: int = 4) -> 
             dirs[:] = []
             continue
         dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith(".")]
+        ignore = load_fp_ignore_patterns()
         for name in files:
             suffix = Path(name).suffix.lower()
             if suffix not in allowed_exts:
                 continue
             rel_path = os.path.relpath(Path(root) / name, path)
+            if ignore and _matches_ignore(rel_path, ignore):
+                continue
             selected.append(rel_path)
     return hash_paths(path, selected)
 
@@ -524,10 +602,15 @@ def write_cache(fingerprint: str, payload: dict[str, object]) -> None:
         "cached_at": datetime.now(timezone.utc).isoformat(),
         "data": payload,
     }
+    tmp = CACHE_FILE.with_suffix(".tmp")
     try:
-        CACHE_FILE.write_text(json.dumps(entry, separators=(",", ":"), ensure_ascii=False))
+        tmp.write_text(json.dumps(entry, separators=(",", ":"), ensure_ascii=False))
+        tmp.replace(CACHE_FILE)  # atomic on POSIX
     except OSError:
-        pass
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def build_payload(

@@ -1,0 +1,61 @@
+# .dev-report-fingerprint-ignore
+# Glob patterns (fnmatch) for files/paths to exclude from content-hash fingerprinting.
+# One pattern per line. # lines are comments. Blank lines are ignored.
+# Patterns match against both the relative path and the filename alone.
+#
+# This file is respected by:
+#   - scripts/phase1_runner.py  (python pipeline runner)
+#   - SKILL.md Phase 1 instructions  (Claude CLI / claude -p version)
+#
+# Purpose: exclude files that change on every pipeline run so warm cache hits
+# are possible when the actual codebase has not changed.
+
+# ── Runtime log files (written by token_logger and pipeline runner) ──────────
+references/examples/token_economics.log
+token_economics.log
+build.log
+*.log
+
+# ── Benchmark output (written by run_pipeline.py after each run) ─────────────
+references/benchmarks.jsonl
+benchmarks.jsonl
+
+# ── Claude debug/session volatile files ──────────────────────────────────────
+# ~/.claude/debug/ grows a new .txt file every session
+debug/*
+debug/*.txt
+
+# ── Claude usage/billing data that updates continuously ──────────────────────
+ccusage-blocks.json
+usage-data/facets/*
+usage-data/session-meta/*
+
+# ── Credential and token files (also sensitive — never hash) ─────────────────
+.credentials.json
+*.credentials.json
+credentials.json
+
+# ── Claude Code per-session volatile files ────────────────────────────────────
+# todos/ grows a new UUID dir + JSON files for each claude -p invocation
+todos/*
+todos
+# stats-cache.json is updated on every claude invocation
+stats-cache.json
+# tasks/ is created by task tracking in sessions
+tasks/*
+tasks
+# projects/ contains per-project session transcripts that grow continuously
+projects/*
+# plugins cache files update when claude checks for updates
+plugins/install-counts-cache.json
+plugins/installed_plugins.json
+plugins/known_marketplaces.json
+plugins/*
+# settings.json may update during sessions (model selection, etc.)
+settings.json
+# package-lock.json and cache may change on updates
+package-lock.json
+cache/*
+
+# ── Build chronicle — uncomment if build-history.md changes too frequently ───
+# build-history.md

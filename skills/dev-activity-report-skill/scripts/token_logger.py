@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -29,6 +31,10 @@ def load_env(skill_dir: Path) -> dict[str, str]:
     return env
 
 
+def expand_path(value: str) -> Path:
+    return Path(os.path.abspath(os.path.expandvars(os.path.expanduser(value))))
+
+
 def append_usage(
     skill_dir: Path,
     phase: str,
@@ -43,15 +49,28 @@ def append_usage(
     """Append a JSONL record and return computed cost."""
 
     env = load_env(skill_dir)
-    token_log = Path(env.get("TOKEN_LOG_PATH", "token_economics.log"))
-    build_log = Path(env.get("BUILD_LOG_PATH", "build.log"))
+    report_dir = expand_path(env.get("REPORT_OUTPUT_DIR", "~"))
+    token_log = expand_path(env.get("TOKEN_LOG_PATH", str(report_dir / "token_economics.log")))
+    build_log = expand_path(env.get("BUILD_LOG_PATH", str(report_dir / "build.log")))
     if log_path:
         token_log = log_path
     if build_log_path:
         build_log = build_log_path
 
-    price_in = price_in if price_in is not None else float(env.get("PRICE_PHASE2_IN", 0) or 0)
-    price_out = price_out if price_out is not None else float(env.get("PRICE_PHASE2_OUT", 0) or 0)
+    if price_in is None:
+        raw_in = env.get("PRICE_PHASE2_IN")
+        if raw_in:
+            price_in = float(raw_in)
+        else:
+            print(f"warning: no price_in provided for phase={phase}; cost will be 0", file=sys.stderr)
+            price_in = 0.0
+    if price_out is None:
+        raw_out = env.get("PRICE_PHASE2_OUT")
+        if raw_out:
+            price_out = float(raw_out)
+        else:
+            print(f"warning: no price_out provided for phase={phase}; cost will be 0", file=sys.stderr)
+            price_out = 0.0
 
     total_tokens = prompt_tokens + completion_tokens
     cost = (prompt_tokens * price_in + completion_tokens * price_out) / 1_000_000

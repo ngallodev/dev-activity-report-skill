@@ -29,6 +29,8 @@ This copies the example if needed, attempts auto-fill from environment, and prom
 | `CLAUDE_HOME` | `~/.claude` | |
 | `REPORT_OUTPUT_DIR` | `~` | |
 | `REPORT_FILENAME_PREFIX` | `dev-activity-report` | |
+| `REPORT_OUTPUT_FORMATS` | `md,html` | comma-separated (JSON always) |
+| `INCLUDE_SOURCE_PAYLOAD` | `false` | include compact payload in JSON |
 | `RESUME_HEADER` | `ngallodev Software, Jan 2025 – Present` | |
 | `ALLOWED_FILE_EXTS` | `.py,.ts,.js,.tsx,.cs,.csproj,.md,.txt,.json,.toml,.yaml,.yml,.sql,.html,.css,.sh` | used for non-git hashing |
 | `INSIGHTS_REPORT_PATH` | `~/.claude/usage-data/report.html` | fingerprint exception |
@@ -37,8 +39,9 @@ This copies the example if needed, attempts auto-fill from environment, and prom
 | `PHASE2_MODEL` | `sonnet` | report polish |
 | `PHASE3_MODEL` | `gpt-5.1-codex-mini` | deterministic cache writes |
 | `SUBSCRIPTION_MODE` | `true` | set true when auth is handled by subscription (no API keys) |
-| `TOKEN_LOG_PATH` | `token_economics.log` | JSONL |
-| `BUILD_LOG_PATH` | `build.log` | summary lines |
+| `TOKEN_LOG_PATH` | `${REPORT_OUTPUT_DIR}/token_economics.log` | JSONL |
+| `BUILD_LOG_PATH` | `${REPORT_OUTPUT_DIR}/build.log` | summary lines |
+| `BENCHMARK_LOG_PATH` | `${REPORT_OUTPUT_DIR}/benchmarks.jsonl` | benchmark JSONL |
 | `PRICE_PHASE15_IN/OUT`, `PRICE_PHASE2_IN/OUT` | per 1M tokens | cost calc |
 | `PHASE15_API_KEY`, `PHASE15_API_BASE`, `PHASE2_API_KEY`, `PHASE2_API_BASE` | optional | leave blank under subscription |
 
@@ -93,74 +96,81 @@ The runner uses `codex exec` with `--approval never --sandbox workspace-write` t
 
 ---
 
-## Phase 2 — Analysis (single-shot, polish the draft)
+## Phase 2 — Structured Analysis (JSON only)
 
-Use only Phase 1 `data` + Phase 1.5 `draft`. Do not re-read files.
+Use only Phase 1 `data` + Phase 1.5 `draft`. Do not re-read files. Keep Phase 2 input compact to minimize tokens.
 
 **Prompt skeleton (replace placeholders):**
 ```
-System: You are a senior developer writing a concise activity report. Stay terse.
+System: You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Stay terse.
 
 User:
 Summary JSON (compact): {{data_json}}
 Draft bullets: {{draft_text}}
 
-Write Markdown with exactly these headings:
-## Overview
-## Key Changes
-## Recommendations
-## Resume Bullets
-## LinkedIn
-## Highlights
-## Timeline
-## Tech Inventory
+Return JSON only (no Markdown, no code fences) with:
+{
+  "sections": {
+    "overview":{"bullets":["..."]},
+    "key_changes":[{"title":"<label>","project_id":"<id or null>","bullets":["..."],"tags":["..."]}],
+    "recommendations":[{"text":"...","priority":"low|medium|high","evidence_project_ids":["..."]}],
+    "resume_bullets":[{"text":"...","evidence_project_ids":["..."]}],
+    "linkedin":{"sentences":["..."]},
+    "highlights":[{"title":"...","rationale":"...","evidence_project_ids":["..."]}],
+    "timeline":[{"date":"YYYY-MM-DD","event":"...","project_ids":["..."]}],
+    "tech_inventory":{"languages":["..."],"frameworks":["..."],"ai_tools":["..."],"infra":["..."]}
+  },
+  "render_hints":{"preferred_outputs":["md","html"],"style":"concise","tone":"professional"}
+}
 
 Rules:
-- Keep bullets short; no meta commentary.
-- Use markers mk + st to separate original vs forked.
-- Pull AI workflow patterns from ins / cx / cl.
+- Output JSON only; no Markdown.
+- Input uses compact keys from PAYLOAD_REFERENCE (p/mk/x/cl/cx/ins/stats).
+- Resume bullets: 5–8 items, achievement-oriented, past tense, quantified where possible.
+- LinkedIn: 3–4 sentences, first person, professional but conversational.
+- Highlights: 2–3 items.
+- Timeline: 5 rows, most recent first.
+- Tech Inventory: languages, frameworks, AI tools, infra.
 ```
 
-**Tiny few-shot (token-thrifty):**
-```
-Summary JSON: {"p":[{"n":"rag-api","cc":3,"fc":["api/router.py"],"hl":["perf","ai-workflow"]}],"mk":[],"cx":{"sm":{"2026-02":4}},"ins":[]}
-Draft bullets: - rag-api: 3 commits; themes perf, ai-workflow
+**Note**: Compact keys are expanded deterministically after Phase 2 (no LLM translation) before rendering.
 
-Output:
-## Overview
-- Refreshed rag-api with perf + AI workflow tweaks.
+---
 
-## Key Changes
-- rag-api: perf-focused tweaks across api/router.py.
+## Phase 2.5 — Render Outputs
 
-## Recommendations
-- Ship perf benchmarks.
+Use `scripts/render_report.py` to render the Phase 2 JSON into `md` and/or `html` based on `REPORT_OUTPUT_FORMATS`. JSON is always written to `${REPORT_OUTPUT_DIR}/${REPORT_FILENAME_PREFIX}-<timestamp>.json`. The renderer should consume the JSON and produce:
 
-## Resume Bullets
-- Boosted rag-api throughput by tightening router hot paths and validating AI pipeline hooks.
-
-## LinkedIn
-- Tuned rag-api for faster routes and smoother AI integration.
-
-## Highlights
-- Perf + AI workflow alignment.
-
-## Timeline
-- 2026-02: rag-api perf/AI tune-up.
-
-## Tech Inventory
-- Languages: Python
-```
+- `${BASE}.md` (if `md` enabled)
+- `${BASE}.html` (if `html` enabled)
 
 Log Phase 2 tokens using `scripts/token_logger.py` with API usage numbers returned by the provider.
 
-Save final report to `${REPORT_OUTPUT_DIR}/${REPORT_FILENAME_PREFIX}-<YYYY-MM-DD>.md`.
+Save final report to `${REPORT_OUTPUT_DIR}/${REPORT_FILENAME_PREFIX}-<YYYYMMDDTHHMMSSZ>.md` (UTC datetime format to prevent overwrites).
 
 ---
 
 ## Phase 3 — Cache writes (Codex)
 
 Delegate to `/codex-job` with the stale projects list only. Fingerprints are content hashes of git-tracked files (or allowed non-git files) and should be written into `.dev-report-cache.md` per project. Model: `${PHASE3_MODEL}`.
+
+---
+
+## Fingerprint Ignore List
+
+Before computing any content hash (git repos, non-git dirs, `claude_home`, `codex_home`), check `.dev-report-fingerprint-ignore` (at `SKILL_DIR`) for glob patterns to exclude. This prevents volatile runtime files from invalidating the cache on every run.
+
+The ignore file uses fnmatch patterns (one per line, `#` comments). Patterns ending with `/*` are treated as recursive prefix matches (match any path under that directory at any depth).
+
+Key excluded categories:
+- `*.log`, `build.log`, `references/examples/token_economics.log`
+- `benchmarks.jsonl` (default in `REPORT_OUTPUT_DIR`)
+- `todos/*`, `tasks/*`, `projects/*` — per-session Claude Code artifacts
+- `debug/*`, `*.txt` — Claude Code debug files
+- `ccusage-blocks.json`, `stats-cache.json`, `settings.json`
+- `.credentials.json` — auth tokens
+
+Apply this filter in Phase 1 whenever calling `scripts/phase1_runner.py`. If running Phase 1 inline (without the script), load the ignore file manually and apply the same filter before hashing.
 
 ---
 

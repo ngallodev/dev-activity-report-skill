@@ -716,20 +716,621 @@ Total: ~72.8k tokens (~$0.18 at Codex mini/Codex rates). Log files (`codex-phase
 
 **Artifacts updated**:
 - `skills/dev-activity-report-skill/scripts/consolidate_reports.py`
-- `skills/dev-activity-report-skill/references/examples/.env.example`
 
 ---
 
-## Milestone 28 — Archive source reports after consolidation
+## Milestone 29 — Comprehensive Code Review
 
-*Session: 2026-02-14 | Author: Claude Sonnet 4.5*
+*Session: 2026-02-16 | Author: Claude Code (Code Review Agent)*
 
-**What happened**: After a successful consolidation run, source report files are now automatically archived into a timestamped `tar.gz` alongside the output file. Archive is named `<output-stem>-consolidated-<datetimestamp>.tar.gz` (UTC, ISO 8601 compact). Uses stdlib `tarfile`; no new dependencies.
+**What happened**: Performed a comprehensive code review of the entire dev-activity-report-skill codebase, analyzing architecture, code quality, security, and performance characteristics.
 
-**Benchmarks** (9 reports, run on 2026-02-14):
-- Archive created: `test-aggregate-consolidated-20260215T072943Z.tar.gz`
-- 9 files archived, total compressed ~34 KB
-- No measurable wall-time impact on overall run (0.01s end-to-end)
+**Key findings**:
 
-**Artifacts updated**:
-- `skills/dev-activity-report-skill/scripts/consolidate_reports.py`
+1. **Overall Grade: A-** — Production-ready codebase with excellent documentation and sophisticated architecture
+
+2. **Strengths identified**:
+   - Exceptional token economics (~65% cost savings through model delegation)
+   - Elegant ownership classification via filesystem markers
+   - Robust two-tier caching strategy (global + per-project)
+   - Comprehensive documentation (build history, payload reference, README)
+   - Proper security practices (no shell injection, path traversal mitigated)
+
+3. **Issues identified**:
+   - **Hardcoded paths** in `run_codex_test_report.sh` (lines 4-6) still use machine-specific paths not portable to other installations
+   - **Missing unit tests** — no automated test coverage for core logic (fingerprinting, caching, payload building)
+   - **Minor edge cases**: No file size limits in hash functions, cache writes not atomic, custom env parser doesn't handle quoted values
+
+4. **Performance observations**:
+   - Warm scan: ~8k tokens, ~8 seconds
+   - Cold scan: ~18k tokens, ~43 seconds
+   - Phase 1 fingerprint cache eliminates filesystem traversal on cache hits
+
+5. **Recommendations** (prioritized):
+   - High: Add pytest unit tests for core functions
+   - High: Fix hardcoded paths in test harness
+   - Medium: Add file size limits and atomic cache writes
+   - Low: Consider async git operations for large repos
+
+**Artifacts produced**:
+- `code-review-report.md` — Comprehensive 300+ line review document with detailed findings, recommendations, and file inventory
+
+**Files reviewed** (11 total):
+- Python scripts: 5 files (1,261 total lines)
+- Shell scripts: 2 files (329 total lines)
+- Documentation: 4 files (1,430 total lines)
+
+---
+
+## Milestone 30 — Live Skill Execution
+
+*Session: 2026-02-16 | Author: Claude Code*
+
+**What happened**: Executed the dev-activity-report skill end-to-end to generate a fresh activity report after completing the code review (Milestone 29).
+
+**Execution phases**:
+
+### Phase 1 — Data Gathering
+- **Model**: Haiku (via direct Python execution)
+- **Result**: Cache miss (fresh scan required)
+- **Projects analyzed**: 13 stale projects
+- **Markers detected**: 42 total
+  - `.not-my-work`: 21 directories
+  - `.skip-for-now`: 9 directories
+  - `.forked-work`: 4 directories
+  - `.forked-work-modified`: 2 directories
+- **Codex sessions**: 50 (Feb 2026)
+- **Active directories**: 13
+
+### Phase 1.5 — Draft Synthesis
+- **Model**: Haiku (fallback/heuristic mode)
+- **Result**: Basic draft generated (0 new commits across projects)
+- **API mode**: Fallback (no API credentials in subscription mode)
+
+### Phase 2 — Report Polish
+- **Model**: Sonnet (Claude synthesis)
+- **Result**: Professional report generated with:
+  - Overview of 13 analyzed projects
+  - Key changes and highlights
+  - 5 resume bullets emphasizing AI pipeline architecture
+  - LinkedIn summary paragraph
+  - 3 hiring manager highlights
+  - 5-row timeline
+  - Tech inventory
+  - Scan summary statistics
+
+### Phase 3 — Cache Writes
+- **Result**: Cache files written for all 13 stale projects
+- **Format**: `.dev-report-cache.md` with fingerprint headers
+- **Status tracking**: All projects marked as analyzed
+
+**Token economics**:
+| Phase | Tokens | Cost |
+|-------|--------|------|
+| Phase 1 | 8,233 | $0.0066 |
+| Phase 1.5 | 0 | $0.0000 |
+| Phase 2 | 2,048 | $0.0061 |
+| **Total** | **10,281** | **$0.0127** |
+
+**Artifacts produced**:
+- `~/dev-activity-report-2026-02-16.md` — Final report (75 lines)
+- `/tmp/dev-activity-report-2026-02-16.md` — Copy
+- 13 per-project `.dev-report-cache.md` files updated
+- Token economics logged to `references/examples/token_economics.log`
+
+**Key findings from this run**:
+- All 13 active projects in stable state (0 new commits)
+- indydevdan project flagged as `fork_mod` status
+- mariadb extra location tracked with 6 key files
+- 50 Codex sessions in February 2026 demonstrate active usage
+- Skill executed successfully in ~10 seconds total
+
+---
+
+## Milestone 31 — Report Filename Format Update (Datetime)
+
+*Session: 2026-02-16 | Author: Claude Code*
+
+**What happened**: Modified the report filename template to use UTC datetime instead of just date, preventing consecutive reports from overwriting each other.
+
+**Problem**: The original format `dev-activity-report-YYYY-MM-DD.md` meant running the skill multiple times on the same day would overwrite previous reports. Users wanted to generate multiple reports throughout the day without losing earlier versions.
+
+**Solution**: Changed the timestamp format from `YYYY-MM-DD` to `YYYYMMDDTHHMMSSZ` (ISO 8601 UTC datetime compact format).
+
+**Changes made**:
+
+1. **run_report.sh** (lines 60-64):
+   - Now uses `${REPORT_FILENAME_PREFIX}-$TS.md` where `TS` is `YYYYMMDDTHHMMSSZ`
+   - Reports now saved as `dev-activity-report-20260216T211340Z.md` instead of `dev-activity-report-2026-02-16.md`
+
+2. **Documentation updates**:
+   - SKILL.md: Updated save location documentation
+   - README.md: Updated all three references to the new format
+   - .env.example (root and references/examples/): Updated comments to explain datetime suffix
+
+**Before**: `~/dev-activity-report-2026-02-16.md`
+**After**: `~/dev-activity-report-20260216T211340Z.md`
+
+**Benefits**:
+- Multiple reports per day without overwrites
+- Chronological sorting by filename works correctly
+- ISO 8601 format is unambiguous and portable
+- Backward compatible—users can still clean up old files by date prefix
+
+**Files modified**:
+- `skills/dev-activity-report-skill/scripts/run_report.sh`
+- `skills/dev-activity-report-skill/SKILL.md`
+- `skills/dev-activity-report-skill/references/examples/.env.example`
+- `.env.example`
+- `README.md`
+
+---
+
+## Milestone 32 — Code Review Fixes (from Milestone 29 Recommendations)
+
+*Session: 2026-02-16 | Author: Claude Code*
+
+**What happened**: Ingested the comprehensive code review report produced in Milestone 29 and implemented all valid, actionable improvements. Five distinct issues were addressed across three files.
+
+**Issues resolved**:
+
+### 1. Hardcoded Paths in Test Script (Issue 2.1 — High Priority)
+**File**: `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh`
+
+The script had machine-specific hardcoded paths that broke portability. Applied the same pattern already used in `run_report.sh`:
+- `SKILL_DIR` now uses `$(cd "$(dirname "$0")/../.." && pwd)` — self-relative resolution
+- `WORKDIR` derived from `$SKILL_DIR` rather than hardcoded
+- `CODEX_BIN` now uses `${CODEX_BIN:-$(command -v codex 2>/dev/null || true)}` — honors env override, falls back to PATH lookup
+- `check_codex()` updated to handle empty `CODEX_BIN` gracefully
+- All heredoc blocks (`<<'EOF'` → `<<EOF`) updated to expand `$SKILL_DIR` and `$PHASE15_TEMP` — eliminating 6+ hardcoded absolute paths in Phase 1, 1.5, 2, and 3 blocks
+
+### 2. File Size Limits in Hash Functions (Issue 2.2 — Medium Priority)
+**File**: `skills/dev-activity-report-skill/scripts/phase1_runner.py`
+
+Added `MAX_HASH_FILE_SIZE = 100 MB` constant. Both `hash_file()` and `hash_paths()` now skip full content hashing for oversized files, using a deterministic placeholder hash instead. Prevents OOM on unexpectedly large binary or log files in scanned directories.
+
+### 3. Git Command Error Logging (Issue 2.3 — Minor)
+**File**: `skills/dev-activity-report-skill/scripts/phase1_runner.py`
+
+`git_tracked_files()` previously returned `[]` silently on any failure. Now:
+- Prints a `warning:` message to stderr when `git ls-files` exits non-zero with stderr output
+- Prints a `warning:` message when an OS/subprocess exception is raised
+- Added `import sys` to support stderr output
+Helps distinguish actual errors from expected "not a git repo" cases.
+
+### 4. Atomic Cache Write (Issue 2.4 — Medium Priority)
+**File**: `skills/dev-activity-report-skill/scripts/phase1_runner.py`
+
+`write_cache()` previously wrote directly to `.phase1-cache.json`, leaving the file in a corrupt partial state if the process crashed mid-write. Now uses the atomic write pattern:
+1. Write JSON to `.phase1-cache.tmp`
+2. `tmp.replace(CACHE_FILE)` — atomic rename on POSIX filesystems
+3. Cleans up `.tmp` on failure
+
+### 5. Token Logger Price Fallback Warning (Issue 2.5 — Minor)
+**File**: `skills/dev-activity-report-skill/scripts/token_logger.py`
+
+`append_usage()` previously fell back silently to Phase 2 pricing (`PRICE_PHASE2_IN/OUT`) when no price was provided, producing incorrect cost calculations for Phase 1, 1.5, and 3. Now:
+- If `price_in`/`price_out` is not passed and `PRICE_PHASE2_IN/OUT` is not set, defaults to `0.0` with an explicit `warning:` to stderr
+- If the env variable IS set, uses it (previous behavior preserved)
+- Added `import sys` for stderr support
+
+### 6. pygit2 Fast Path for Git Operations (Enhancement)
+**File**: `skills/dev-activity-report-skill/scripts/phase1_runner.py`
+
+Added `pygit2` as an optional accelerator for all three git introspection functions, following the same try/except import pattern used for `python-dotenv`:
+
+- **`is_git_repo()`**: Uses `pygit2.discover_repository()` — reads `.git` directory directly, no subprocess
+- **`git_head()`**: Uses `repo.head.target` — reads packed-refs/HEAD directly, no subprocess
+- **`git_tracked_files()`**: Uses `repo.index.read()` — reads `.git/index` binary format directly, no subprocess
+
+When `pygit2` is not installed, all three functions fall back to the existing `subprocess` + `git` CLI path. Zero behavioral change when `pygit2` is absent.
+
+**Why pygit2 over GitPython**: GitPython calls `git` subprocess internally for most operations — same overhead as the current approach. `pygit2` binds to `libgit2` (C library) and reads git objects directly from disk, eliminating process spawn overhead entirely. Per-project savings: 3 subprocess calls → 0 when `pygit2` is present.
+
+**Issues intentionally skipped**:
+- **Issue 2.6** (env parser quoted values): Low impact; `python-dotenv` is the preferred path already, fallback parser works for the simple `KEY=VALUE` format used in `.env.example`
+- **Test coverage** (Section 3.3): Adding a pytest suite is a standalone project; not included here
+- **Async git operations** (Section 5.3): Premature optimization; sequential is fine at current scale
+
+**Files modified**:
+- `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh`
+- `skills/dev-activity-report-skill/scripts/phase1_runner.py`
+- `skills/dev-activity-report-skill/scripts/token_logger.py`
+
+**Benchmark** (impact assessment):
+- `hash_file()` / `hash_paths()`: No measurable change for typical files; prevents potential OOM on large repos
+- `write_cache()`: One extra syscall (rename) instead of direct write; negligible overhead
+- `git_tracked_files()` / `is_git_repo()` / `git_head()`: When `pygit2` installed — eliminates 3 subprocess spawns per project (e.g. 13 projects → saves ~39 process forks per cold scan); when absent — zero change
+
+---
+
+## Milestone 33 — Cache Clear Script and requirements.txt
+
+*Session: 2026-02-16 | Author: Claude Code*
+
+**What happened**: Added two missing infrastructure pieces: a `requirements.txt` documenting Python dependencies, and a `clear_cache.py` script for forcing a full fresh scan.
+
+### requirements.txt
+
+`skills/dev-activity-report-skill/scripts/requirements.txt` — lists all third-party Python dependencies:
+- `python-dotenv>=1.0.0` — required (graceful fallback exists but produces a warning)
+- `pygit2>=1.14.0` — optional; enables fast git introspection via libgit2 without subprocess
+
+Install with: `pip install -r skills/dev-activity-report-skill/scripts/requirements.txt`
+Optional only: `pip install pygit2`
+
+### clear_cache.py
+
+`skills/dev-activity-report-skill/scripts/clear_cache.py` — safe, config-aware cache clear tool.
+
+**What it clears**:
+1. `$SKILL_DIR/.phase1-cache.json` — global fingerprint cache
+2. `$SKILL_DIR/.phase1-cache.tmp` — leftover from interrupted atomic write
+3. `$SKILL_DIR/scripts/.phase1-cache.json` — stray cache from earlier runs in wrong directory
+4. `$APPS_DIR/*/.dev-report-cache.md` — all per-project caches (depth 1)
+
+**Design**:
+- Reads `.env` / defaults (same logic as `phase1_runner.py`) to resolve `APPS_DIR` — clears the right directories regardless of config
+- Default mode is **dry-run**: prints what would be deleted, does nothing
+- Requires `--confirm` to actually delete — prevents accidental runs
+- Reuses `python-dotenv` fallback pattern consistent with rest of codebase
+
+**Usage**:
+```bash
+python3 scripts/clear_cache.py           # dry-run: show what would be removed
+python3 scripts/clear_cache.py --confirm # actually delete
+```
+
+**Verified** (dry-run on 2026-02-16): correctly identified 19 cache files — 2 phase1 caches (including stray in `scripts/`) + 17 per-project `.dev-report-cache.md` files.
+
+**Files added**:
+- `skills/dev-activity-report-skill/scripts/requirements.txt`
+- `skills/dev-activity-report-skill/scripts/clear_cache.py`
+
+---
+
+## Milestone 34 — .gitignore Pattern Fixes (Post-Code Review)
+
+*Session: 2026-02-16 | Author: Claude Code*
+
+**What happened**: Addressed issues identified in Milestone 29 code review regarding missing .gitignore patterns for generated files.
+
+**Issues identified**:
+1. Log files (`*.log`) were not ignored, causing build logs and token economics logs to appear as untracked
+2. Python bytecode cache directories (`__pycache__/`) were not ignored
+3. Python compiled files (`*.pyc`) were not ignored
+
+**Untracked files before fix**:
+- `skills/dev-activity-report-skill/build.log`
+- `skills/dev-activity-report-skill/references/examples/build.log`
+- `skills/dev-activity-report-skill/scripts/__pycache__/`
+- `skills/dev-activity-report-skill/token_economics.log`
+
+**Changes made**:
+Added three new patterns to `.gitignore`:
+```
+*.log
+__pycache__/
+*.pyc
+```
+
+**Result**: All generated files now properly ignored. The `token_economics.log` file still shows as modified (not untracked) because it was already tracked by git before the ignore pattern was added.
+
+**Files modified**:
+- `.gitignore`
+
+---
+
+## Milestone 35 — Robust Dev Workflow: Cache Validation, Pre-Commit Hook, Skill Sync
+
+*Session: 2026-02-17 | Author: ngallodev + Claude Sonnet 4.5*
+
+**What happened**: Added three infrastructure pieces to harden the development workflow: an automated cache validation script, a git pre-commit safety hook, and a skill sync/verify script.
+
+### 1. Cache validation script (`scripts/testing/validate_cache.py`)
+
+Runs the full cold→warm validation loop automatically:
+1. Clears all caches via `clear_cache.py --confirm`
+2. Runs `phase1_runner.py` cold — asserts `cache_hit=False`, `fp` non-empty, cache file written
+3. Runs `phase1_runner.py` warm — asserts `cache_hit=True`, `fp` matches cold, **mtime unchanged** (no self-invalidating rewrite)
+4. Reads cache file and confirms stored fingerprint equals reported fp
+
+The mtime stability assertion catches the self-invalidating cache bug documented in Milestone 9 — if `write_cache()` runs on a warm hit (it must not), the mtime will change and the test fails.
+
+**Benchmark** (2026-02-17):
+- Cold run: 0.73–0.98s
+- Warm run: 0.57–0.84s
+- All 4 assertions pass; fingerprint stable across runs
+
+### 2. Git pre-commit hook (`.git/hooks/pre-commit`)
+
+Blocks commits of gitignored cache files before they can pollute the repo:
+
+- Reads `.gitignore` and uses `git check-ignore` to test each staged file
+- Also maintains a hardcoded list of known cache patterns as a belt-and-suspenders check:
+  `.phase1-cache.json`, `.phase1-cache.tmp`, `.dev-report-cache.md`, `.dev-report-cache.tmp`
+- Prints which pattern triggered the block and how to unstage
+- Does not block commits where no staged file matches a cache pattern
+- Tested: force-staged `.phase1-cache.json` → hook exited 1 with correct error
+
+### 3. Skill sync script (`scripts/sync_skill.sh`)
+
+Syncs the repo skill directory to the installed location at `~/.claude/skills/dev-activity-report-skill/` and verifies identity:
+
+- Uses `rsync -av --delete` with the same exclusions as `.gitignore` (`.env`, caches, logs, bytecode)
+- Runs `diff -rq` after sync to confirm copies are identical
+- Supports `--check-only` (diff without sync) and `--dry-run` (rsync preview without write)
+- Honors `CLAUDE_SKILLS_DIR` env var override for non-standard install locations
+
+**Verified** (2026-02-17): sync completed in <1s (warm), `diff` confirmed identical copies.
+
+### Pipeline verified end-to-end
+
+All three scripts run in sequence without failure:
+1. `validate_cache.py` → PASSED (cold 0.73s, warm 0.84s)
+2. `sync_skill.sh` → SUCCESS (copies identical)
+3. Hook test → exited 1 (blocked staged cache file correctly)
+
+**Files added**:
+- `skills/dev-activity-report-skill/scripts/testing/validate_cache.py`
+- `skills/dev-activity-report-skill/scripts/sync_skill.sh`
+- `.git/hooks/pre-commit` (not tracked by git — installed to `.git/hooks/`)
+
+---
+
+## Milestone N+1 — Direct Pipeline Runner (run_pipeline.py)
+
+**Date**: 2026-02-16
+
+**What happened**: Added `scripts/run_pipeline.py` — a self-contained pipeline runner that executes all phases directly without going through `codex exec`. The existing `run_report.sh` wraps every phase in a `codex exec` subprocess, adding overhead and requiring the Codex CLI binary. The new script invokes each phase directly.
+
+**Key decisions made**:
+- Phase 1 and 1.5 are spawned as Python subprocesses (preserving their existing logic unchanged).
+- Phase 2 calls the Anthropic SDK directly (`anthropic.Anthropic().messages.create()`), with a fallback to OpenAI-compatible endpoints if the `anthropic` package isn't installed.
+- Model short names (`haiku`, `sonnet`, `opus`) are mapped to full Anthropic model IDs internally.
+- Phase 3 (cache verification) runs inline in Python — no subprocess needed.
+- Same `.env` config file used; same `PHASE*_MODEL`, `PHASE*_API_*`, `SUBSCRIPTION_MODE` env vars honored.
+- Background mode works by relaunching self with `--foreground` via `subprocess.Popen(..., start_new_session=True)` and logging to `pipeline-run-<TS>.log`.
+- Token logging delegates to `token_logger.append_usage()` after each API phase.
+- Few-shot examples from SKILL.md included in Phase 2 prompt for consistency with the Claude-driven flow.
+
+**Why not replace run_report.sh**: Both scripts are kept. `run_report.sh` is the codex-exec path used when Claude runs the skill; `run_pipeline.py` is the direct-execution path for scripted/CI/standalone invocations.
+
+**Files added**:
+- `skills/dev-activity-report-skill/scripts/run_pipeline.py` (executable)
+
+**Benchmark** (expected, not yet measured):
+- Eliminates 3× `codex exec` subprocess spawns (~1–3s each)
+- Phase 1 subprocess time unchanged (no cache hit: ~5–15s depending on repo count)
+- Phase 2 API latency: ~3–8s for Sonnet
+- Total wall time target: <30s foreground (vs. 45–90s via codex exec)
+
+---
+
+## Milestone N+2 — Fingerprint Ignore List + Benchmark Suite (2026-02-17)
+
+**What happened**: Diagnosed and fixed a cache invalidation bug discovered during live cold/warm benchmark testing. Added a `.dev-report-fingerprint-ignore` file and supporting logic in `phase1_runner.py`.
+
+### Root Cause Analysis
+
+During benchmark testing, `cache_hit=False` persisted on every run despite no code changes. Root causes found (in order of discovery):
+
+1. **`token_economics.log` is git-tracked** (known pitfall, noted in MEMORY.md). It gets appended to by `token_logger.py` on every run, changing its content hash and invalidating the global fingerprint.
+2. **`~/.claude/debug/*.txt` files** — Claude Code writes a new debug `.txt` file for each session. These matched `allowed_exts` (`.txt`) and were included in `claude_fp`.
+3. **`~/.claude/todos/<uuid>/*.json` files** — every `claude -p` invocation creates a new session UUID directory with todo JSON files. These are at `depth=2` within `max_depth=2` scan, extension `.json` is in `allowed_exts`.
+4. **`~/.claude/plugins/install-counts-cache.json`, `settings.json`, `stats-cache.json`** — update on each `claude` invocation.
+5. **`fnmatch` not recursive** — `todos/*` did not match `todos/uuid/1.json`. Required a custom prefix-match extension in `_matches_ignore`.
+
+### Fix
+
+- Added `.dev-report-fingerprint-ignore` file (per-skill ignore list, gitignored-style patterns, `#` comments)
+- Added `load_fp_ignore_patterns()`, `_matches_ignore()` to `phase1_runner.py`
+- Extended `_matches_ignore` with recursive prefix matching: `dir/*` matches anything under `dir/` at any depth
+- Applied ignore filter in both `hash_git_repo` (for project dirs) and `hash_non_git_dir` (for claude_home, codex_home)
+- Documented that the ignore list applies to the Claude CLI version too (SKILL.md note)
+
+**Verification**: Two back-to-back `phase1_runner.py` runs show identical fingerprints and `cache_hit=True` on the second run.
+
+### Benchmark Results (run_pipeline.py, 12 runs, 2026-02-17)
+
+Environment: haiku for P1+P1.5, sonnet for P2, subscription mode (cost_usd=0), 12 projects under APPS_DIR.
+
+| Phase | Time range | Notes |
+|---|---|---|
+| Phase 1 (data gather) | 0.69–0.87s | `phase1_runner.py` subprocess |
+| Phase 1.5 (Haiku via `claude -p`) | 7.3–9.0s | No `openai` SDK; uses `claude -p` |
+| Phase 2 (Sonnet via `claude -p`) | 27.1–33.5s | Full polished report |
+| Phase 3 (cache verify, inline) | <0.01s | Reads `.phase1-cache.json` |
+| **Total** | **37–43s** | vs. 45–90s estimated for `codex exec` path |
+
+Token breakdown (Anthropic subscription; all `cost_usd=0`):
+- P1.5: ~5k–27k `cache_creation` + ~17k–22k `cache_read` + ~173–289 `output`
+- P2: ~5.7k–24k `cache_creation` + ~17.7k `cache_read` + ~1,055–1,360 `output`
+- High `cache_creation` on first run (cold prompt cache); high `cache_read` on subsequent runs within TTL
+
+Benchmark records stored in `references/benchmarks.jsonl`.
+
+### Files added/modified
+
+- `skills/dev-activity-report-skill/.dev-report-fingerprint-ignore` — new ignore list
+- `skills/dev-activity-report-skill/scripts/phase1_runner.py` — `load_fp_ignore_patterns()`, `_matches_ignore()`, applied in `hash_git_repo` + `hash_non_git_dir`
+- `skills/dev-activity-report-skill/scripts/run_pipeline.py` — complete rewrite to use `claude -p` instead of SDK, add timing/benchmark recording
+- `skills/dev-activity-report-skill/references/benchmarks.jsonl` — live benchmark log (gitignored)
+- `README.md` — added `run_pipeline.py` section with benchmark table and ignore list docs
+
+---
+
+## Milestone 8 — PR Review Fixes (2026-02-16)
+
+**What happened**: Addressed five issues identified in PR code review (`planning-docs/current-pr-review-items.md`).
+
+### Issues fixed
+
+**High — Inflated benchmark `total_sec`** (`run_pipeline.py:275–281`)
+- `record_benchmark` was calling `sum(timings.values())` on a dict that already included the `"total"` key written at line 464 before the call, causing `total_sec` to be `actual_total + total` (roughly doubled).
+- Fix: `timings_sec` now excludes the `"total"` key; `total_sec` sums only the four phase keys (`phase1`, `phase15`, `phase2`, `phase3`).
+
+**High — `--tools ""` passed to claude CLI** (`run_pipeline.py:96`)
+- `--tools ""` was passed to every `claude -p` call. An empty string is not a valid tool name and could cause the CLI to reject the invocation.
+- Fix: Removed the `--tools` flag entirely. Pure text-generation calls need no tool specification.
+
+**Medium — Hard-coded `timeout=120`** (`run_pipeline.py:107`)
+- Phase 2 (Sonnet) routinely runs 27–34s and could exceed 120s on large repos or slow networks. The timeout was fixed and not overridable.
+- Fix: `claude_call()` now accepts a `timeout` parameter (default 300s). `call_phase2()` reads `PHASE2_TIMEOUT` from `.env` (default 300); `call_phase15_claude()` reads `PHASE15_TIMEOUT` (default 180).
+
+**Medium — Cache fallback used wrong key names** (`run_pipeline.py:368–391`)
+- When Phase 1 produced no JSON stdout, the pipeline read `.phase1-cache.json` directly but then tried `.get("fp")` and `.get("cache_hit")`. The cache file uses `"fingerprint"` (not `"fp"`) and has no `"cache_hit"` key, so logs showed `fp=n/a` and warm runs were labelled cold.
+- Fix: After reading the cache file, normalize the dict: copy `fingerprint` → `fp` if missing, and set `cache_hit=True` (reading from cache file always implies a warm run).
+
+**Medium — `*.txt` in fingerprint ignore too broad** (`.dev-report-fingerprint-ignore:27`)
+- A bare `*.txt` excluded every `.txt` file in every scanned repo, risking false cache hits when real source `.txt` files change.
+- Fix: Removed `*.txt`. The specific `debug/*` and `debug/*.txt` patterns remain, which cover the only known volatile `.txt` location (`~/.claude/debug/`).
+
+**Low — `clear_cache.py` `expand()` didn't handle `$HOME`** (`clear_cache.py:38`)
+- `os.path.expanduser` handles `~` but not `$HOME`. If `APPS_DIR` is set using `$HOME/apps`, cache clearing would silently use the literal string.
+- Fix: Added `os.path.expandvars()` call before `expanduser`.
+
+### Files modified
+
+- `skills/dev-activity-report-skill/scripts/run_pipeline.py` — benchmark fix, `--tools ""` removal, configurable timeout, cache key normalization
+- `skills/dev-activity-report-skill/scripts/clear_cache.py` — `expandvars` in `expand()`
+- `skills/dev-activity-report-skill/.dev-report-fingerprint-ignore` — removed global `*.txt`
+
+---
+
+## Defaults & Messaging Cleanup (2026-02-17)
+
+**What changed**:
+- Swapped default scan roots to `~/projects` and cleared `EXTRA_SCAN_DIRS`, keeping examples but avoiding hardcoded `/lump` paths.
+- Normalized resume header copy to `Your Name …` across env templates, Python defaults, and shell prompts.
+- Added optional `anthropic` and `openai` client dependencies so Phase 1.5/2 can call APIs directly when available.
+- Let `sync_skill.sh` include `.env` by default (no secrets when `SUBSCRIPTION_MODE=true`) while retaining cache exclusions.
+- Updated prompt templates to interpolate `RESUME_HEADER` instead of a fixed company string.
+
+### Tests / Benchmarks
+- Not run (config and prompt default refresh only).
+
+---
+
+*End of Build History*
+
+## Milestone 9 — Review Fixes (2026-02-17)
+
+**What happened**: Addressed remaining PR review items: token logging accuracy, benchmark log location, safer background logging, and documentation/privacy cleanups.
+
+### Changes
+
+- `run_pipeline.py`: normalize Claude CLI usage into prompt/completion tokens for `token_logger`, guard empty cache files in Phase 3, validate output dir before background log creation, and route benchmark logs to `BENCHMARK_LOG_PATH` or `REPORT_OUTPUT_DIR/benchmarks.jsonl`.
+- `token_logger.py`: default log paths now resolve to `REPORT_OUTPUT_DIR` with env/tilde expansion.
+- Docs: updated `.env.example`, `references/examples/.env.example`, `README.md`, and `SKILL.md` to reflect new log defaults and benchmark path overrides.
+- `references/benchmarks.jsonl`: corrected `total_sec`, removed embedded `timings_sec.total`, and sanitized report paths.
+- Phase 2 prompts: expand compact payload keys into human-readable labels to avoid `mk`/`st` shorthand in Key Changes (run_pipeline + run_report.sh).
+- `references/ignored-files-summary.md`: removed from references (moved to ignored planning docs) to avoid shipping machine-specific details in the repo.
+
+### Benchmarks
+
+- No new benchmark runs executed in this milestone; existing benchmark records were normalized and sanitized.
+
+---
+
+## Milestone 9 — Review Fixes (2026-02-17)
+
+**What happened**: Addressed remaining PR review items: token logging accuracy, benchmark log location, safer background logging, and documentation/privacy cleanups.
+
+### Changes
+
+- `run_pipeline.py`: normalize Claude CLI usage into prompt/completion tokens for `token_logger`, guard empty cache files in Phase 3, validate output dir before background log creation, and route benchmark logs to `BENCHMARK_LOG_PATH` or `REPORT_OUTPUT_DIR/benchmarks.jsonl`.
+- `token_logger.py`: default log paths now resolve to `REPORT_OUTPUT_DIR` with env/tilde expansion.
+- Docs: updated `.env.example`, `references/examples/.env.example`, `README.md`, and `SKILL.md` to reflect new log defaults and benchmark path overrides.
+- `references/benchmarks.jsonl`: corrected `total_sec`, removed embedded `timings_sec.total`, and sanitized report paths.
+- Phase 2 prompts: expand compact payload keys into human-readable labels to avoid `mk`/`st` shorthand in Key Changes (run_pipeline + run_report.sh).
+- `references/ignored-files-summary.md`: removed from references (moved to ignored planning docs) to avoid shipping machine-specific details in the repo.
+
+### Benchmarks
+
+- No new benchmark runs executed in this milestone; existing benchmark records were normalized and sanitized.
+
+---
+
+## Milestone 10 — JSON Output + Renderer (2026-02-17)
+
+**What happened**: Phase 2 now outputs JSON only. Rendering is handled by a new Phase 2.5 script, enabling multiple output formats without LLM translation overhead.
+
+### Changes
+
+- `run_pipeline.py`: Phase 2 consumes compact payload (token-efficient), outputs JSON only, then deterministic expansion + normalization occurs post-model. Added Phase 2.5 renderer invocation and JSON report output.
+- `render_report.py`: new renderer script for `md` and `html` outputs.
+- `run_report.sh`: updated to request JSON output, assemble report JSON, and render outputs via `render_report.py`.
+- Config: added `REPORT_OUTPUT_FORMATS` and `INCLUDE_SOURCE_PAYLOAD` to `.env.example` and docs.
+- Docs: updated `README.md` and `SKILL.md` to reflect JSON-first pipeline and renderer phase.
+
+### Benchmarks
+
+- Not run for this milestone.
+
+---
+
+## Milestone 11 — Renderer Fix (2026-02-17)
+
+**What happened**: Fixed JSON template formatting and renderer string escaping, then rendered the latest JSON output manually after the pipeline failed at Phase 2.5.
+
+### Changes
+
+- `run_pipeline.py`: escaped JSON braces in Phase 2 prompt format string to avoid `.format()` errors.
+- `render_report.py`: rebuilt with correct string escaping to avoid syntax errors during render.
+
+### Benchmarks
+
+- Not run for this milestone (pipeline failed before Phase 3; manual render executed).
+
+---
+
+## Milestone 12 — Renderer Styling Overhaul (2026-02-17)
+
+**What happened**: The Markdown and HTML outputs produced by `render_report.py` had poor visual quality compared to the old freeform Markdown approach used before the Phase 2 → JSON migration.
+
+### Root Causes
+
+The old pipeline had Phase 2 write freeform Markdown directly; the LLM produced naturally well-formatted output. The new JSON-based pipeline relies on `render_report.py` to reconstruct Markdown mechanically, and the first implementation had multiple styling defects:
+
+1. **No H1 title block** — output started with `## Overview` directly; no document title, resume header, or generated timestamp.
+2. **Key Changes used `- **title**` with indented sub-bullets** — visually flat; should use `### title` subheadings with bullet list underneath.
+3. **LinkedIn rendered as flat paragraph** — should be a `> blockquote` for visual callout.
+4. **Section spacing** — sections joined with `"\n".join(out)` using `"\n## ..."` prefixes produced inconsistent whitespace.
+5. **Recommendations had no priority indication** — JSON carries `priority: high/medium/low` but it was discarded.
+6. **Tech Inventory** emitted empty rows for missing keys — now skips rows with no items.
+7. **HTML `card()` used `<section class="section">`** — PicoCSS v2 expects `<article>` for card-like styling.
+8. **HTML had no page header** — no H1, no resume_header, no timestamp at top.
+9. **HTML CSS** — missing styles for article cards, h3 sub-headings, blockquote callout, priority badges, section dividers, table formatting.
+
+### Changes — `render_report.py`
+
+**Markdown (`render_markdown`):**
+- Added H1 title block with `resume_header` (bold) and `generated_at` (italic) from JSON root.
+- Rebuilt section assembly: each section is a self-contained string joined with `"\n\n---\n\n"` — clean `---` horizontal rules between every section.
+- Key Changes: each item now `### {title}` + bullet list (was `- **title**` + indented bullets).
+- LinkedIn: renders as `> {paragraph}` blockquote.
+- Recommendations: appends `` `HIGH` `` / `` `MEDIUM` `` inline code tag for high/medium priority.
+- Tech Inventory: skips empty category rows.
+- Table alignment: `|:---|:---|` (explicit left-align).
+
+**HTML (`render_html`):**
+- `card()` replaced with `article()` — wraps in `<article>` for PicoCSS v2 card styling.
+- Added `<header class="report-header">` with H1, resume_header, and meta timestamp.
+- LinkedIn as `<blockquote class="linkedin">` with blue left-border callout style.
+- Recommendations render priority as colored `<span>` badges.
+- `<hr class="section-divider">` separators between logical sections.
+- Full CSS rewrite: article card styling (white bg, shadow, rounded), h2 uppercase labels, h3 sub-headings, table with header background + hover rows, blockquote callout, priority badge colors.
+- Moved PicoCSS `<link>` to `<head>` directly.
+
+### Smoke Test
+
+Rendered against a synthetic JSON fixture with all sections populated. Exit code 0, both `.md` and `.html` output clean.
+
+### Benchmarks
+
+- Not run for this milestone (styling-only change, no pipeline execution).
+
+---
+
+*End of Build History*
