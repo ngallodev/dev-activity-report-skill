@@ -1456,4 +1456,80 @@ pytest tests/test_caching_integrity.py -v
 
 ---
 
+## Milestone 16 — Planning Notes Recon (2026-02-17)
+
+**What happened**: Added the user-provided todo list and a notes section to `planning-docs/PLAN.md`, then re-verified the relevant touchpoints (`README.md`, `skills/dev-activity-report-skill/scripts/run_pipeline.py`, and `skills/dev-activity-report-skill/scripts/phase1_runner.py`) so future work can coordinate CLI arguments, Phase 1 data gathering, and documentation before tackling the listed limitations.
+
+### Benchmarks
+
+- Not run (documentation-only change).
+
+---
+
+## Milestone 17 — Implementation Prep (2026-02-17)
+
+**What happened**: Expanded `planning-docs/PLAN.md` with an “Implementation Prep” section that details the dependencies, files, tests, and documentation updates needed for `--since`, `--refresh`, multi-root scanning, the installer, and an interactive review mode so the next coding sprint can start with a clear checklist.
+
+### Benchmarks
+
+- Not run (planning-level work).
+
+---
+
+## Milestone 18 — Go-Live Feature Execution (2026-02-17)
+
+**What happened**: Executed the go-live implementation plan in parallel workstreams, then integrated and validated the results across CLI behavior, caching controls, installer workflow, interactive review mode, tests, and documentation.
+
+### Core implementation changes
+
+- Added `--since`, `--refresh`, and repeatable `--root` support in Phase 1 collection (`skills/dev-activity-report-skill/scripts/phase1_runner.py`) and pipeline orchestration (`skills/dev-activity-report-skill/scripts/run_pipeline.py`).
+- Added env fallbacks for scoped windows and multi-root scanning:
+  - `REPORT_SINCE` / `GIT_SINCE` / `SINCE`
+  - `APPS_DIRS` (overrides `APPS_DIR` when present)
+- Updated git metrics collection so date windows affect commit counts, changed files, commit messages, and shortstat computation.
+- Extended payload and fingerprint source metadata to include scan roots and date window (`ad` + `ads`, `sn`) for cache correctness under scoped/multi-root runs.
+- Added forced cache bypass in Phase 1 when `--refresh` is used.
+- Extended `scripts/run_report.sh` arg parsing to pass through `--since`, `--refresh`, and `--root`.
+
+### Interactive review mode
+
+- Added `skills/dev-activity-report-skill/scripts/review_report.py` for optional local JSON curation (edit/prune) between Phase 2 and rendering.
+- Added `--interactive` to `run_pipeline.py`, with automatic safety bypass in CI/non-TTY contexts to preserve automation behavior.
+
+### Installer and setup UX
+
+- Expanded `skills/dev-activity-report-skill/scripts/setup_env.py` into an idempotent one-command installer/sync flow:
+  - prerequisite verification (Python runtime + Claude CLI),
+  - skill sync into `~/.claude/skills/...`,
+  - optional `.env` configuration update,
+  - non-destructive behavior with `--dry-run`, `--skip-setup`, and `--configure-only`.
+
+### Test and validation updates
+
+- Added targeted tests for:
+  - scan-root resolution and `--since` precedence (`tests/test_configuration.py`),
+  - fingerprint invalidation when roots/since change (`tests/test_caching_integrity.py`),
+  - pipeline forwarding of `--since/--refresh/--root` and interactive no-TTY bypass (`tests/test_pipeline_contracts.py`).
+
+### Benchmarks
+
+- `pytest -p no:cacheprovider tests/test_configuration.py tests/test_caching_integrity.py tests/test_pipeline_contracts.py -q`
+  - Result: **45 passed**
+  - Runtime: **0.96s**
+- `pytest -p no:cacheprovider tests -q`
+  - Result: **79 passed**
+  - Runtime: **1.44s**
+- `python3 -m py_compile` on updated scripts (`phase1_runner.py`, `run_pipeline.py`, `review_report.py`, `setup_env.py`)
+  - Result: **pass**
+- Installer smoke benchmarks (worker-run, local environment):
+  - `python3 setup_env.py --dry-run`: ~**0.35s**
+  - `python3 setup_env.py --install-dir /tmp/dev-activity-report-skill-install --skip-setup`: ~**0.30s**, idempotent rerun confirmed
+
+### Notes
+
+- Multi-agent execution plan file recorded at `agent-notes/go-live-multi-agent-execution-plan.md`.
+- Existing unrelated working-tree edits were preserved; no destructive git operations were used.
+
+---
+
 *End of Build History*

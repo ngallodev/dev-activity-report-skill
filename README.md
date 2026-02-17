@@ -116,17 +116,16 @@ All user-specific values (paths, identity, models) live in a `.env` file that's 
 ## Limitations & Roadmap
 
 **Current limitations:**
-- Single-machine only. Scans the local filesystem; no support for remote hosts, SSH targets, or networked development environments.
-- One `APPS_DIR` at a time. The `EXTRA_SCAN_DIRS` variable handles additional fixed paths, but multiple peer-level app directories require SKILL.md extension.
-- No `--refresh` flag. To force a full re-scan despite valid caches, manually delete `.dev-report-cache.md` files or pass `--refresh` (not yet implemented).
-- Non-git directory fingerprinting uses mtime, which can be noisy (temp files trigger re-scans).
+- Single-machine only. Scans local filesystems; no native SSH orchestration yet.
+- Interactive review is terminal-only (`--interactive`) and intentionally skipped in CI/non-TTY contexts.
+- Multi-root scanning works for local paths, but remote mount latency can still dominate Phase 1 wall time.
+- Non-git directory fingerprinting uses content hashes from allowed extensions; broad extension lists can increase scan time.
 
 **Planned enhancements:**
 - Multi-machine support via SSH or remote filesystem mounts
-- `--refresh` flag to force full re-scan
-- `--since <date>` to scope the report to a time window
-- Multiple `APPS_DIR` entries
-- Smarter non-git fingerprinting (content hash of key files)
+- Optional per-root concurrency for very large multi-root scans
+- Richer interactive curation controls (bulk tags/reorder/export profiles)
+- Deeper non-git heuristics for massive monorepos
 
 ---
 
@@ -138,6 +137,17 @@ All user-specific values (paths, identity, models) live in a `.env` file that's 
 - Claude Code skills support enabled
 
 ### Install the skill
+
+**One-command installer (recommended):**
+```bash
+python3 skills/dev-activity-report-skill/scripts/setup_env.py
+```
+
+Useful options:
+- `--dry-run` to preview changes only
+- `--interactive` to prompt for key `.env` values
+- `--skip-setup` to sync files only
+- `--configure-only` to update `.env` in the current repo copy without syncing
 
 **Option A — Clone and install directly:**
 ```bash
@@ -160,6 +170,8 @@ Edit `.env` with your values (all tunables live here):
 ```bash
 # Where your projects live
 APPS_DIR=~/projects
+# Optional multi-root scan list (comma/space separated). If set, takes precedence over APPS_DIR.
+# APPS_DIRS=~/projects ~/work/client-apps
 
 # Additional one-off directories to include (leave blank if none)
 EXTRA_SCAN_DIRS=
@@ -183,6 +195,8 @@ PHASE3_MODEL=gpt-5.1-codex-mini
 # TOKEN_LOG_PATH=~/token_economics.log
 # BUILD_LOG_PATH=~/build.log
 # BENCHMARK_LOG_PATH=~/benchmarks.jsonl
+# Optional time-window for git activity (also available as --since)
+# REPORT_SINCE=2026-01-01
 # Subscription auth (leave keys blank when true)
 SUBSCRIPTION_MODE=true
 ```
@@ -215,12 +229,23 @@ python3 skills/dev-activity-report-skill/scripts/run_pipeline.py
 
 # Foreground — streams all phase output to terminal
 python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground
+
+# Scope git activity to a window and force fresh Phase 1
+python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground --since "2026-01-01" --refresh
+
+# Scan multiple project roots
+python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground --root ~/projects --root ~/work/client-apps
+
+# Optional local review/edit pass before render (skips automatically in CI/non-TTY)
+python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground --interactive
 ```
 
 This script:
 - Runs `phase1_runner.py` as a subprocess (same logic, no overhead)
+- Supports `--since`, `--refresh`, and repeatable `--root` arguments (also env fallbacks: `REPORT_SINCE`, `APPS_DIRS`)
 - Calls `phase1_5_draft.py` for the Haiku draft; falls back to `claude --model haiku -p` if no `openai` SDK installed
 - Calls `claude --model sonnet -p` directly for Phase 2 and expects **JSON only**
+- Optionally opens an interactive JSON curation step (`--interactive`) between Phase 2 and rendering
 - Renders outputs via `scripts/render_report.py` to `md`/`html` based on `REPORT_OUTPUT_FORMATS`
 - Runs Phase 3 cache verification inline in Python
 - Appends timing and token usage to `BENCHMARK_LOG_PATH` (default: `REPORT_OUTPUT_DIR/benchmarks.jsonl`)

@@ -149,6 +149,51 @@ class TestCacheInvalidation:
         assert parse_cached_fp("") == ""
         assert parse_cached_fp("some other content") == ""
 
+    def test_since_and_roots_invalidate_global_cache(self, tmp_path):
+        """Changing --since or scan roots must change global fingerprint."""
+        from phase1_runner import hash_payload, compute_fingerprint_source
+
+        roots_a = [tmp_path / "apps-a"]
+        roots_b = [tmp_path / "apps-b"]
+        projects = [{"name": "proj1", "fp": "abc123", "status": "orig", "root": str(roots_a[0])}]
+
+        src1 = compute_fingerprint_source(
+            roots=roots_a,
+            since="2026-01-01",
+            projects=projects,
+            markers=[],
+            extra_summaries=[],
+            claude_meta={"fp": ""},
+            codex_meta={"fp": ""},
+            insights_fp="",
+        )
+        src2 = compute_fingerprint_source(
+            roots=roots_b,
+            since="2026-01-01",
+            projects=[{"name": "proj1", "fp": "abc123", "status": "orig", "root": str(roots_b[0])}],
+            markers=[],
+            extra_summaries=[],
+            claude_meta={"fp": ""},
+            codex_meta={"fp": ""},
+            insights_fp="",
+        )
+        src3 = compute_fingerprint_source(
+            roots=roots_a,
+            since="2026-02-01",
+            projects=projects,
+            markers=[],
+            extra_summaries=[],
+            claude_meta={"fp": ""},
+            codex_meta={"fp": ""},
+            insights_fp="",
+        )
+
+        fp1 = hash_payload(src1)
+        fp2 = hash_payload(src2)
+        fp3 = hash_payload(src3)
+        assert fp1 != fp2
+        assert fp1 != fp3
+
 
 class TestCacheShortCircuit:
     """Cache hits must skip expensive operations."""

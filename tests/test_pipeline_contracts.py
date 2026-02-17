@@ -181,6 +181,80 @@ class TestSubprocessFailureHandling:
         assert usage["prompt_tokens"] == 0
         assert usage["completion_tokens"] == 0
 
+    def test_phase1_cli_args_include_since_refresh_and_roots(self, tmp_path, monkeypatch):
+        """run() must forward since/refresh/root options to phase1_runner."""
+        from run_pipeline import run
+
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        env_file = tmp_path / ".env"
+        env_file.write_text(f"""
+APPS_DIR={tmp_path}/apps
+CODEX_HOME={tmp_path}/codex
+CLAUDE_HOME={tmp_path}/claude
+REPORT_OUTPUT_DIR={output_dir}
+""")
+        (tmp_path / "apps").mkdir(exist_ok=True)
+        (tmp_path / "apps2").mkdir(exist_ok=True)
+        (tmp_path / "codex").mkdir(exist_ok=True)
+        (tmp_path / "claude").mkdir(exist_ok=True)
+
+        monkeypatch.setattr("run_pipeline.ENV_FILE", env_file)
+        monkeypatch.setattr("run_pipeline.SKILL_DIR", tmp_path)
+        monkeypatch.setattr("run_pipeline.find_claude_bin", lambda: "/usr/bin/claude")
+
+        seen = {"phase1": None}
+
+        def mock_subprocess_run(*args, **kwargs):
+            cmd = args[0]
+            cmd_str = " ".join(str(part) for part in cmd)
+            if "phase1_runner.py" in cmd_str:
+                seen["phase1"] = cmd
+                return MagicMock(returncode=1, stdout="phase1 error", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("subprocess.run", mock_subprocess_run)
+
+        result = run(
+            foreground=True,
+            since="2026-01-01",
+            refresh=True,
+            roots=[str(tmp_path / "apps"), str(tmp_path / "apps2")],
+        )
+        assert result == 1
+        assert seen["phase1"] is not None
+        phase1_cmd = [str(part) for part in seen["phase1"]]
+        assert "--since" in phase1_cmd
+        assert "2026-01-01" in phase1_cmd
+        assert "--refresh" in phase1_cmd
+        assert phase1_cmd.count("--root") == 2
+
+
+class TestInteractiveContracts:
+    """Interactive mode must be optional and automation-safe."""
+
+    def test_should_run_interactive_skips_without_tty(self, monkeypatch):
+        """Interactive mode must skip when stdin/stdout are not TTY."""
+        from run_pipeline import should_run_interactive
+
+        class _NoTty:
+            @staticmethod
+            def isatty():
+                return False
+
+            @staticmethod
+            def write(_text):
+                return 0
+
+            @staticmethod
+            def flush():
+                return None
+
+        monkeypatch.delenv("CI", raising=False)
+        monkeypatch.setattr("run_pipeline.sys.stdin", _NoTty())
+        monkeypatch.setattr("run_pipeline.sys.stdout", _NoTty())
+        assert should_run_interactive(True) is False
+
 
 class TestModelApiFailure:
     """Model API failures must be handled with fallbacks."""

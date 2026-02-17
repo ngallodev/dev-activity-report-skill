@@ -13,6 +13,7 @@ Phases:
 Usage:
   python3 run_pipeline.py             # background, logs to ~/pipeline-run-<TS>.log
   python3 run_pipeline.py --foreground  # stream all phase output
+  python3 run_pipeline.py --interactive --foreground  # review Phase 2 JSON before render
 """
 from __future__ import annotations
 
@@ -52,6 +53,38 @@ def load_env() -> dict[str, str]:
 
 def expand(val: str) -> str:
     return os.path.expandvars(os.path.expanduser(val))
+
+
+def parse_paths(raw: str) -> list[str]:
+    if not raw:
+        return []
+    return [p for p in raw.replace(",", " ").split() if p.strip()]
+
+
+def resolve_scan_roots(env: dict[str, str], cli_roots: list[str] | None = None) -> list[str]:
+    if cli_roots:
+        raw_roots = [r for r in cli_roots if r.strip()]
+    else:
+        raw_roots = parse_paths(env.get("APPS_DIRS", "")) or [env.get("APPS_DIR", "~/projects")]
+    roots: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_roots:
+        expanded = expand(raw)
+        if expanded in seen:
+            continue
+        seen.add(expanded)
+        roots.append(expanded)
+    return roots
+
+
+def resolve_since(env: dict[str, str], cli_since: str | None = None) -> str | None:
+    if cli_since and cli_since.strip():
+        return cli_since.strip()
+    for key in ("REPORT_SINCE", "GIT_SINCE", "SINCE"):
+        value = env.get(key, "")
+        if value and value.strip():
+            return value.strip()
+    return None
 
 
 def find_claude_bin() -> str | None:
@@ -97,6 +130,7 @@ def expand_compact_payload(compact: dict) -> dict:
                 "commit_messages": proj.get("msg", []) or [],
                 "themes": proj.get("hl", []) or [],
                 "fingerprint": proj.get("fp", ""),
+                "root": proj.get("rt", ""),
             }
         )
 
@@ -127,6 +161,8 @@ def expand_compact_payload(compact: dict) -> dict:
 
     return {
         "apps_dir": compact.get("ad", ""),
+        "apps_dirs": compact.get("ads", []) or [],
+        "since": compact.get("sn", ""),
         "projects": projects,
         "ownership_markers": ownership_markers,
         "extra_scan_dirs": extra_scan_dirs,
@@ -159,6 +195,7 @@ def build_source_summary(expanded: dict) -> dict:
                 "id": proj_id,
                 "name": name,
                 "path": proj.get("path", ""),
+                "root": proj.get("root", ""),
                 "status": proj.get("status", "orig"),
                 "commit_count": proj.get("commit_count", 0),
                 "file_changes": proj.get("file_changes", ""),
@@ -167,6 +204,9 @@ def build_source_summary(expanded: dict) -> dict:
         )
 
     return {
+        "apps_dir": expanded.get("apps_dir", ""),
+        "apps_dirs": expanded.get("apps_dirs", []) or [],
+        "since": expanded.get("since", ""),
         "projects": projects,
         "extra_scan_dirs": expanded.get("extra_scan_dirs", []) or [],
         "claude_home": expanded.get("claude_home", {}) or {},
@@ -449,7 +489,25 @@ def record_benchmark(
 
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
-def run(foreground: bool = True) -> int:
+def should_run_interactive(interactive: bool) -> bool:
+    if not interactive:
+        return False
+    if os.environ.get("CI", "").strip().lower() in {"1", "true", "yes"}:
+        print("  Interactive mode skipped in CI.", flush=True)
+        return False
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print("  Interactive mode skipped (no TTY).", flush=True)
+        return False
+    return True
+
+
+def run(
+    foreground: bool = True,
+    interactive: bool = False,
+    since: str | None = None,
+    refresh: bool = False,
+    roots: list[str] | None = None,
+) -> int:
     env = load_env()
 
     if not ENV_FILE.exists():
@@ -458,10 +516,12 @@ def run(foreground: bool = True) -> int:
         subprocess.run([sys.executable, str(setup)] + flag, check=False)
         env = load_env()
 
-    apps_dir = expand(env.get("APPS_DIR", "~/projects"))
+    apps_roots = resolve_scan_roots(env, cli_roots=roots)
+    since_value = resolve_since(env, cli_since=since)
     codex_home = expand(env.get("CODEX_HOME", "~/.codex"))
     claude_home = expand(env.get("CLAUDE_HOME", "~/.claude"))
-    for key, val in (("APPS_DIR", apps_dir), ("CODEX_HOME", codex_home), ("CLAUDE_HOME", claude_home)):
+    required_roots = ", ".join(apps_roots)
+    for key, val in (("APPS_DIR/APPS_DIRS", required_roots), ("CODEX_HOME", codex_home), ("CLAUDE_HOME", claude_home)):
         if not val:
             print(f"Missing required .env value: {key}. Run scripts/setup_env.py.", file=sys.stderr)
             return 1
@@ -502,9 +562,20 @@ def run(foreground: bool = True) -> int:
     # ── Phase 1: data gathering ───────────────────────────────────────────────
     phase1_model = env.get("PHASE1_MODEL", "haiku")
     print(f"== Phase 1 ({phase1_model}): data gathering ==", flush=True)
+    if since_value:
+        print(f"  git since filter: {since_value}", flush=True)
+    if refresh:
+        print("  refresh: forcing phase1 cache rebuild", flush=True)
     t0 = time.monotonic()
+    phase1_cmd = [sys.executable, str(SCRIPT_DIR / "phase1_runner.py")]
+    if since_value:
+        phase1_cmd.extend(["--since", since_value])
+    if refresh:
+        phase1_cmd.append("--refresh")
+    for root in apps_roots:
+        phase1_cmd.extend(["--root", root])
     result = subprocess.run(
-        [sys.executable, str(SCRIPT_DIR / "phase1_runner.py")],
+        phase1_cmd,
         capture_output=True,   # always capture; print below if foreground
         text=True,
         cwd=str(SKILL_DIR),
@@ -662,6 +733,21 @@ def run(foreground: bool = True) -> int:
         "render_hints": render_hints,
         "source_payload": compact_payload if include_source_payload else None,
     }
+
+    # Optional local JSON edit pass before render (no extra model calls).
+    if should_run_interactive(interactive):
+        print("== Interactive review: phase 2 JSON edit/prune ==", flush=True)
+        try:
+            from review_report import run_interactive_review
+            report_obj, changed = run_interactive_review(report_obj)
+        except Exception as exc:
+            print(f"  Interactive review unavailable: {exc}", file=sys.stderr)
+            return 1
+        if changed:
+            print("  Interactive edits applied.", flush=True)
+        else:
+            print("  No interactive edits made.", flush=True)
+
     report_json.write_text(json.dumps(report_obj, separators=(",", ":")), encoding="utf-8")
     print(f"  Report JSON written: {report_json}", flush=True)
 
@@ -719,7 +805,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Direct pipeline runner for dev-activity-report.")
     parser.add_argument("--foreground", action="store_true",
                         help="Stream output (default: background via nohup)")
+    parser.add_argument("--interactive", action="store_true",
+                        help="Prompt to edit/prune Phase 2 JSON before rendering")
+    parser.add_argument("--since", help="Limit git activity to commits since this date/time.")
+    parser.add_argument("--refresh", action="store_true", help="Force phase1 cache rebuild.")
+    parser.add_argument("--root", action="append", default=[],
+                        help="Project root directory to scan (repeatable).")
     args = parser.parse_args()
+
+    if args.interactive and not args.foreground:
+        print("Interactive mode requires foreground output; switching to --foreground.", flush=True)
+        args.foreground = True
 
     if not args.foreground:
         env = load_env()
@@ -733,8 +829,17 @@ def main() -> None:
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         log_file = log_dir / f"pipeline-run-{ts}.log"
         with open(log_file, "w") as lf:
+            child_cmd = [sys.executable, __file__, "--foreground"]
+            if args.interactive:
+                child_cmd.append("--interactive")
+            if args.since:
+                child_cmd.extend(["--since", args.since])
+            if args.refresh:
+                child_cmd.append("--refresh")
+            for root in args.root:
+                child_cmd.extend(["--root", root])
             proc = subprocess.Popen(
-                [sys.executable, __file__, "--foreground"],
+                child_cmd,
                 stdout=lf,
                 stderr=lf,
                 start_new_session=True,
@@ -742,7 +847,15 @@ def main() -> None:
         print(f"Pipeline started in background (PID {proc.pid}). Log: {log_file}", flush=True)
         return
 
-    sys.exit(run(foreground=True))
+    sys.exit(
+        run(
+            foreground=True,
+            interactive=args.interactive,
+            since=args.since,
+            refresh=args.refresh,
+            roots=args.root,
+        )
+    )
 
 
 if __name__ == "__main__":

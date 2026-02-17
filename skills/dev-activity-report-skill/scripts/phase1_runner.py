@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import fnmatch
 import hashlib
 import json
@@ -66,7 +67,9 @@ def _matches_ignore(rel_path: str, patterns: list[str]) -> bool:
 
 DEFAULTS: dict[str, str] = {
     "APPS_DIR": "~/projects",
+    "APPS_DIRS": "",
     "EXTRA_SCAN_DIRS": "",
+    "REPORT_SINCE": "",
     "CODEX_HOME": "~/.codex",
     "CLAUDE_HOME": "~/.claude",
     "REPORT_OUTPUT_DIR": "~",
@@ -121,6 +124,37 @@ def parse_exts(raw: str) -> set[str]:
 def parse_paths(raw: str) -> list[Path]:
     parts = [p for p in raw.replace(",", " ").split() if p]
     return [expand_path(p) for p in parts]
+
+
+def dedupe_paths(paths: Sequence[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = str(path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
+
+
+def resolve_scan_roots(cli_roots: Sequence[str], env: dict[str, str]) -> list[Path]:
+    if cli_roots:
+        return dedupe_paths([expand_path(raw) for raw in cli_roots if raw.strip()])
+    env_roots = parse_paths(env.get("APPS_DIRS", ""))
+    if env_roots:
+        return dedupe_paths(env_roots)
+    return [expand_path(env.get("APPS_DIR", DEFAULTS["APPS_DIR"]))]
+
+
+def resolve_since(cli_since: str | None, env: dict[str, str]) -> str | None:
+    if cli_since and cli_since.strip():
+        return cli_since.strip()
+    for key in ("REPORT_SINCE", "GIT_SINCE", "SINCE"):
+        value = env.get(key, "")
+        if value and value.strip():
+            return value.strip()
+    return None
 
 
 def hash_file(path: Path) -> str:
@@ -233,6 +267,7 @@ def hash_git_repo(path: Path) -> str:
 
 def hash_non_git_dir(path: Path, allowed_exts: set[str], max_depth: int = 4) -> str:
     selected: list[str] = []
+    ignore = load_fp_ignore_patterns()
     if not path.exists():
         return ""
     for root, dirs, files in os.walk(path):
@@ -242,7 +277,6 @@ def hash_non_git_dir(path: Path, allowed_exts: set[str], max_depth: int = 4) -> 
             dirs[:] = []
             continue
         dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith(".")]
-        ignore = load_fp_ignore_patterns()
         for name in files:
             suffix = Path(name).suffix.lower()
             if suffix not in allowed_exts:
@@ -276,7 +310,14 @@ def discover_markers(apps_dir: Path) -> tuple[list[dict[str, str]], dict[str, st
             if marker in files:
                 rel_path = Path(root).relative_to(apps_dir)
                 project = rel_path.parts[0] if rel_path.parts else ""
-                markers.append({"m": marker, "p": project, "path": str(Path(root).resolve())})
+                markers.append(
+                    {
+                        "m": marker,
+                        "p": project,
+                        "path": str(Path(root).resolve()),
+                        "r": str(apps_dir.resolve()),
+                    }
+                )
                 if marker == ".not-my-work":
                     project_status[project] = "not"
                 elif marker == ".skip-for-now":
@@ -330,6 +371,7 @@ def collect_projects(apps_dir: Path, status_map: dict[str, str], allowed_exts: s
                 "cache_hit": cache_hit,
                 "status": project_status,
                 "git": git_repo,
+                "root": str(apps_dir.resolve()),
             }
         )
     return projects
@@ -358,28 +400,72 @@ def git_range_base(project: dict[str, object]) -> str:
     return "HEAD~20"
 
 
-def git_commit_count(path: Path, base: str) -> int:
-    output = run_command(["git", "-C", str(path), "rev-list", "--count", f"{base}..HEAD"])
+def git_commit_count(path: Path, base: str, since: str | None = None) -> int:
+    if since:
+        output = run_command(["git", "-C", str(path), "rev-list", "--count", f"--since={since}", "HEAD"])
+    else:
+        output = run_command(["git", "-C", str(path), "rev-list", "--count", f"{base}..HEAD"])
     try:
         return int(output.strip() or 0)
     except ValueError:
         return 0
 
 
-def git_shortstat(path: Path, base: str) -> str:
-    return run_command(["git", "-C", str(path), "diff", f"{base}..HEAD", "--shortstat"])
+def summarize_numstat(raw: str) -> str:
+    files_changed = 0
+    insertions = 0
+    deletions = 0
+    for line in raw.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        add, remove, _ = parts
+        files_changed += 1
+        if add.isdigit():
+            insertions += int(add)
+        if remove.isdigit():
+            deletions += int(remove)
+    if files_changed == 0:
+        return ""
+    return f"{files_changed} files changed, {insertions} insertions(+), {deletions} deletions(-)"
 
 
-def git_changed_files(path: Path, base: str, limit: int = MAX_CHANGED_FILES) -> list[str]:
-    output = run_command(["git", "-C", str(path), "diff", f"{base}..HEAD", "--name-only"])
-    files = [line for line in output.splitlines() if line][:limit]
+def git_shortstat(path: Path, base: str, since: str | None = None) -> str:
+    if not since:
+        return run_command(["git", "-C", str(path), "diff", f"{base}..HEAD", "--shortstat"])
+    raw = run_command(
+        ["git", "-C", str(path), "log", f"--since={since}", "--numstat", "--format=tformat:"]
+    )
+    return summarize_numstat(raw)
+
+
+def git_changed_files(path: Path, base: str, since: str | None = None, limit: int = MAX_CHANGED_FILES) -> list[str]:
+    if not since:
+        output = run_command(["git", "-C", str(path), "diff", f"{base}..HEAD", "--name-only"])
+        return [line for line in output.splitlines() if line][:limit]
+    output = run_command(
+        ["git", "-C", str(path), "log", f"--since={since}", "--name-only", "--format=tformat:"]
+    )
+    seen: set[str] = set()
+    files: list[str] = []
+    for line in output.splitlines():
+        name = line.strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        files.append(name)
+        if len(files) >= limit:
+            break
     return files
 
 
-def git_messages(path: Path, base: str, limit: int = MAX_COMMIT_MESSAGES) -> list[str]:
-    output = run_command(
-        ["git", "-C", str(path), "log", f"{base}..HEAD", "--format=%s", f"-n{limit}"]
-    )
+def git_messages(path: Path, base: str, since: str | None = None, limit: int = MAX_COMMIT_MESSAGES) -> list[str]:
+    cmd = ["git", "-C", str(path), "log", "--format=%s", f"-n{limit}"]
+    if since:
+        cmd.insert(4, f"--since={since}")
+    else:
+        cmd.insert(4, f"{base}..HEAD")
+    output = run_command(cmd)
     return [line for line in output.splitlines() if line][:limit]
 
 
@@ -425,15 +511,15 @@ def collect_key_files(path: Path, patterns: Iterable[str] = ("*.md", "*.csproj",
     return matches
 
 
-def summarize_project(entry: dict[str, object]) -> dict[str, object]:
+def summarize_project(entry: dict[str, object], since: str | None = None) -> dict[str, object]:
     path = Path(entry["path"])
     status = entry.get("status", "orig")
     base = git_range_base(entry)
     if entry.get("git"):
-        commit_count = git_commit_count(path, base)
-        shortstat = git_shortstat(path, base)
-        files = git_changed_files(path, base)
-        messages = git_messages(path, base)
+        commit_count = git_commit_count(path, base, since=since)
+        shortstat = git_shortstat(path, base, since=since)
+        files = git_changed_files(path, base, since=since)
+        messages = git_messages(path, base, since=since)
     else:
         commit_count = 0
         shortstat = ""
@@ -450,6 +536,7 @@ def summarize_project(entry: dict[str, object]) -> dict[str, object]:
         "fc": files,
         "msg": messages,
         "hl": highlights,
+        "rt": entry.get("root", ""),
     }
 
 
@@ -551,6 +638,8 @@ def collect_codex_activity(codex_home: Path, allowed_exts: set[str]) -> tuple[di
 
 
 def compute_fingerprint_source(
+    roots: list[Path],
+    since: str | None,
     projects: list[dict[str, object]],
     markers: list[dict[str, str]],
     extra_summaries: list[dict[str, object]],
@@ -558,22 +647,28 @@ def compute_fingerprint_source(
     codex_meta: dict[str, object],
     insights_fp: str,
 ) -> dict[str, object]:
-    marker_map: dict[str, list[str]] = {}
+    marker_map: dict[tuple[str, str], list[str]] = {}
     for entry in markers:
-        project = entry.get("p") or entry.get("path")
-        if not project:
+        project = entry.get("p")
+        root = entry.get("r", "")
+        if not project or not root:
             continue
-        marker_map.setdefault(project, []).append(entry["m"])
+        marker_map.setdefault((root, project), []).append(entry["m"])
     project_entries = []
     for proj in projects:
+        root = str(proj.get("root", ""))
+        name = str(proj["name"])
         entry = {
-            "n": proj["name"],
+            "n": name,
             "fp": proj["fp"],
             "st": proj.get("status", "orig"),
-            "m": sorted(marker_map.get(proj["name"], [])),
+            "r": root,
+            "m": sorted(marker_map.get((root, name), [])),
         }
         project_entries.append(entry)
     return {
+        "roots": [str(root.resolve()) for root in roots],
+        "since": since or "",
         "projects": project_entries,
         "extra": [{"p": e.get("p") or e.get("path"), "fp": e.get("fp", "")} for e in extra_summaries],
         "claude_fp": claude_meta.get("fp", ""),
@@ -615,7 +710,8 @@ def write_cache(fingerprint: str, payload: dict[str, object]) -> None:
 
 def build_payload(
     timestamp: str,
-    apps_dir: Path,
+    apps_roots: list[Path],
+    since: str | None,
     markers: list[dict[str, str]],
     projects: list[dict[str, object]],
     stale_projects: list[dict[str, object]],
@@ -624,10 +720,13 @@ def build_payload(
     codex_payload: dict[str, object],
     insights_lines: list[str],
 ) -> dict[str, object]:
-    marker_compact = [{"m": m["m"], "p": m["p"]} for m in markers]
+    marker_compact = [{"m": m["m"], "p": m["p"], "r": m.get("r", "")} for m in markers]
+    primary_root = str(apps_roots[0]) if apps_roots else ""
     return {
         "ts": timestamp,
-        "ad": str(apps_dir),
+        "ad": primary_root,
+        "ads": [str(root) for root in apps_roots],
+        "sn": since or "",
         "mk": marker_compact,
         "p": stale_projects,
         "x": extra_summaries,
@@ -642,17 +741,31 @@ def build_payload(
     }
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Collect Phase 1 dev-activity payload.")
+    parser.add_argument("--since", help="Limit git activity to commits since this date/time.")
+    parser.add_argument("--refresh", action="store_true", help="Bypass global phase1 cache and rebuild payload.")
+    parser.add_argument("--root", action="append", default=[], help="Project root directory to scan (repeatable).")
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     env = load_env()
     allowed_exts = parse_exts(env.get("ALLOWED_FILE_EXTS", DEFAULTS["ALLOWED_FILE_EXTS"]))
 
-    apps_dir = expand_path(env["APPS_DIR"])
+    apps_roots = resolve_scan_roots(args.root, env)
+    since = resolve_since(args.since, env)
     extra_dirs = parse_paths(env.get("EXTRA_SCAN_DIRS", ""))
     claude_home = expand_path(env.get("CLAUDE_HOME", "~/.claude"))
     codex_home = expand_path(env.get("CODEX_HOME", "~/.codex"))
 
-    markers, status_map = discover_markers(apps_dir)
-    projects = collect_projects(apps_dir, status_map, allowed_exts)
+    markers: list[dict[str, str]] = []
+    projects: list[dict[str, object]] = []
+    for apps_dir in apps_roots:
+        root_markers, status_map = discover_markers(apps_dir)
+        markers.extend(root_markers)
+        projects.extend(collect_projects(apps_dir, status_map, allowed_exts))
 
     extra_summaries = [collect_extra_location(d, allowed_exts) for d in extra_dirs]
     claude_payload, claude_meta = collect_claude_activity(claude_home, allowed_exts)
@@ -660,21 +773,24 @@ def main() -> None:
     insights_lines, insights_fp = collect_insights_log(env)
 
     fingerprint_source = compute_fingerprint_source(
+        apps_roots,
+        since,
         projects, markers, extra_summaries, claude_meta, codex_meta, insights_fp
     )
     fingerprint = hash_payload(fingerprint_source)
 
-    cache = read_cache()
+    cache = None if args.refresh else read_cache()
     if cache and cache.get("fingerprint") == fingerprint:
         payload = cache.get("data", {})
         print(json.dumps({"fp": fingerprint, "cache_hit": True, "data": payload}, separators=(",", ":"), ensure_ascii=False))
         return
 
-    stale_projects = [summarize_project(p) for p in projects if not p.get("cache_hit")]
+    stale_projects = [summarize_project(p, since=since) for p in projects if not p.get("cache_hit")]
 
     payload = build_payload(
         timestamp=datetime.now(timezone.utc).isoformat(),
-        apps_dir=apps_dir,
+        apps_roots=apps_roots,
+        since=since,
         markers=markers,
         projects=projects,
         stale_projects=stale_projects,
