@@ -152,7 +152,7 @@ Save final report to `${REPORT_OUTPUT_DIR}/${REPORT_FILENAME_PREFIX}-<YYYYMMDDTH
 
 ## Phase 3 — Cache writes (Codex)
 
-Delegate to `/codex-job` with the stale projects list only. Fingerprints are content hashes of git-tracked files (or allowed non-git files) and should be written into `.dev-report-cache.md` per project. Model: `${PHASE3_MODEL}`.
+This is a simple Bash tool call, almost any model should be able to handle it. The input is the stale projects list only. Fingerprints are content hashes of git-tracked files (or allowed non-git files) and should be written into `.dev-report-cache.md` per project. Model: `${PHASE3_MODEL}`.
 
 ---
 

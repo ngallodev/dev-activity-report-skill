@@ -1333,4 +1333,127 @@ Rendered against a synthetic JSON fixture with all sections populated. Exit code
 
 ---
 
+## Milestone 13 — Planning Doc Refresh & Roadmap Recon (2026-02-17)
+
+**What happened**: Replaced `planning-docs/PLAN.md` with the user's new todo list, then traced each listed limitation/feature request through `README.md`, `scripts/run_pipeline.py`, and `scripts/phase1_runner.py` to understand the current behavior and where the fixes would land.
+
+### Observations
+- The Phase 1 walker currently binds to a single `APPS_DIR` and treats `EXTRA_SCAN_DIRS` as auxiliary summaries, so supporting more machines or directories requires plumbing extra roots, adjusting caching per root, and expanding the fingerprint.
+- There are no `--since` or `--refresh` switches in the CLI wrappers or Phase 1 runner, leaving scope and cache control locked to the existing JSON cache format documented in the README.
+- Installation still relies on manual cloning/copying and invoking `scripts/setup_env.py`, so a one-command installer script must recreate those steps (clone, copy files into `~/.claude/skills`, run the env setup, and record the URLs).
+
+### Benchmarks
+- Not run (documentation/analysis-only change).
+
+---
+
+## Milestone 14 — Compact Test Suite (2026-02-17)
+
+**Author**: opencode (Kimi K2.5 Free)
+
+**PR**: [#6 - FEAT: ADD COMPREHENSIVE COMPACT TEST SUITE](https://github.com/ngallodev/dev-activity-report-skill/pull/6)
+
+**External Review**: See [`agent-notes/pr-6-code-review.md`](agent-notes/pr-6-code-review.md) for independent code review by Qwen Code (Alibaba Qwen model) — 2026-02-17
+
+**What happened**: Designed and implemented a comprehensive, token-efficient test suite targeting the most fragile and critical parts of the application. The goal was to cover integration points, caching logic, error handling, and configuration edge cases without achieving pointless blanket coverage.
+
+### Test Organization
+
+Six focused test modules targeting specific fragility areas:
+
+| Test File | Focus Area | Risk Level |
+|-----------|-----------|------------|
+| `test_caching_integrity.py` | Fingerprint stability, cache invalidation, short-circuit | **Highest** |
+| `test_ownership_markers.py` | Marker detection (.skip-for-now, .not-my-work, etc.) | High |
+| `test_pipeline_contracts.py` | Phase contracts, error handling, subprocess failures | High |
+| `test_configuration.py` | .env parsing, path handling, output formats | Medium |
+| `test_non_git_handling.py` | Non-git directory fragility (mtime issues) | Medium |
+| `test_render_output.py` | Markdown/HTML rendering, output generation | Medium |
+
+Plus shell integration tests (`test_pipeline_integration.sh`) for environment and syntax validation.
+
+### Key Design Decisions
+
+**Integration over isolation**: Tests verify contracts between components, not implementation details. If we refactor Phase 1's internal data structures but keep the JSON output format the same, tests still pass.
+
+**Mock all LLM calls**: No actual API calls in tests. Phase 2 responses are mocked, subprocess calls are patched, and file system operations use `tmp_path` fixtures. Result: tests complete in ~1.5 seconds.
+
+**Target fragility, not coverage**: 72 tests covering the critical path vs. hundreds of trivial unit tests. Each test justifies its existence with a docstring explaining which production failure it prevents.
+
+**Document known fragility**: The non-git handling tests explicitly demonstrate the mtime fragility issue - a temp file change triggers re-scan even when code content hasn't changed. This serves as living documentation.
+
+### Test Highlights
+
+**Fingerprint Stability**: Verified that content changes invalidate cache while timestamp-only changes don't. SHA-256 hashing is deterministic and stable.
+
+**Cache Short-Circuit**: Confirmed that matching fingerprints skip expensive operations. Malformed cache files are handled gracefully (treated as cache miss, not crash).
+
+**Ownership Markers**: All four marker types (.skip-for-now, .not-my-work, .forked-work, .forked-work-modified) correctly detected at depth ≤2. Projects with skip markers are excluded from output.
+
+**Error Handling**: Phase 1 crashes, Claude CLI timeouts, missing API keys, invalid JSON - all handled with proper error codes and graceful degradation.
+
+**Configuration**: Missing .env files fall back to safe defaults. Malformed .env lines are ignored. Paths with tildes, variables, and spaces are handled correctly.
+
+### Running the Tests
+
+```bash
+# All Python tests
+pytest tests/ -v
+
+# Specific test group
+pytest tests/test_caching_integrity.py -v
+
+# Shell integration tests
+./tests/test_pipeline_integration.sh
+```
+
+### Benchmarks
+
+- **Test count**: 72 Python tests + 25 shell integration tests
+- **Execution time**: 1.43s (Python), ~2s (shell)
+- **Coverage focus**: Critical path only (caching, contracts, error handling)
+- **LLM API calls**: 0 (all mocked)
+
+### Files Created
+
+- `tests/conftest.py` - Shared fixtures and imports
+- `tests/test_caching_integrity.py` - Caching logic (11 tests)
+- `tests/test_ownership_markers.py` - Marker detection (10 tests)
+- `tests/test_pipeline_contracts.py` - Phase contracts (9 tests)
+- `tests/test_configuration.py` - Config handling (15 tests)
+- `tests/test_non_git_handling.py` - Non-git fragility (13 tests)
+- `tests/test_render_output.py` - Output rendering (14 tests)
+- `tests/test_pipeline_integration.sh` - Shell integration (25 tests)
+- `tests/README.md` - Test documentation and philosophy
+- `tests/pytest.ini` - Pytest configuration
+
+---
+
+## Milestone 15 — PR #6 Code Review & Verification (2026-02-17)
+
+**Reviewer**: Qwen Code (Alibaba Qwen model)
+
+**What happened**: Independent code review of PR #6 testing suite against the original planning document (`planning-docs/initial-testing-generation-prompt.md`).
+
+### Review Scope
+
+- Verified all 6 target fragile areas are covered (caching, markers, pipeline contracts, configuration, non-git handling, rendering)
+- Confirmed 72 Python tests + 25 shell integration tests all pass
+- Validated test design philosophy aligns with prompt requirements (integration over isolation, mock all LLM calls, target fragility)
+- Checked documentation quality (README, docstrings, test naming)
+
+### Key Findings
+
+**Coverage**: 100% of prompt requirements met. All critical fragility points have corresponding test protection.
+
+**Quality**: Tests are well-structured, fast (~1.5s execution), and maintainable. Each test class includes docstrings explaining WHY the test matters.
+
+**Verdict**: APPROVED — Recommended for merge.
+
+### Artifacts Created
+
+- `agent-notes/pr-6-code-review.md` — Full detailed code review with coverage tables and test execution results
+
+---
+
 *End of Build History*
