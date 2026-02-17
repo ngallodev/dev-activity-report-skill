@@ -9,7 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-
 HTML_CSS = """
 <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2/css/pico.min.css">
 <style>
@@ -36,8 +35,7 @@ def _get_section(report: dict, name: str) -> dict:
 
 
 def _md_list(lines: Iterable[str]) -> str:
-    return "
-".join(f"- {line}" for line in lines)
+    return "\\n".join(f"- {line}" for line in lines)
 
 
 def render_markdown(report: dict) -> str:
@@ -47,8 +45,7 @@ def render_markdown(report: dict) -> str:
     out.append("## Overview")
     out.append(_md_list(overview) if overview else "- (none)")
 
-    out.append("
-## Key Changes")
+    out.append("\\n## Key Changes")
     key_changes = _get_section(report, "key_changes") or []
     if key_changes:
         for item in key_changes:
@@ -60,8 +57,7 @@ def render_markdown(report: dict) -> str:
     else:
         out.append("- (none)")
 
-    out.append("
-## Recommendations")
+    out.append("\\n## Recommendations")
     recs = _get_section(report, "recommendations") or []
     if recs:
         for rec in recs:
@@ -70,8 +66,7 @@ def render_markdown(report: dict) -> str:
     else:
         out.append("- (none)")
 
-    out.append("
-## Resume Bullets")
+    out.append("\\n## Resume Bullets")
     resume = _get_section(report, "resume_bullets") or []
     if resume:
         for rb in resume:
@@ -79,16 +74,14 @@ def render_markdown(report: dict) -> str:
     else:
         out.append("- (none)")
 
-    out.append("
-## LinkedIn")
+    out.append("\\n## LinkedIn")
     linkedin = _get_section(report, "linkedin").get("sentences", [])
     if linkedin:
         out.append(" ".join(s.strip() for s in linkedin if s))
     else:
         out.append("(none)")
 
-    out.append("
-## Highlights")
+    out.append("\\n## Highlights")
     highlights = _get_section(report, "highlights") or []
     if highlights:
         for h in highlights:
@@ -98,8 +91,7 @@ def render_markdown(report: dict) -> str:
     else:
         out.append("- (none)")
 
-    out.append("
-## Timeline")
+    out.append("\\n## Timeline")
     timeline = _get_section(report, "timeline") or []
     if timeline:
         out.append("| Date | Event |")
@@ -111,8 +103,7 @@ def render_markdown(report: dict) -> str:
     else:
         out.append("- (none)")
 
-    out.append("
-## Tech Inventory")
+    out.append("\\n## Tech Inventory")
     tech = _get_section(report, "tech_inventory") or {}
     if tech:
         out.append("| Category | Items |")
@@ -128,9 +119,7 @@ def render_markdown(report: dict) -> str:
     else:
         out.append("- (none)")
 
-    return "
-".join(out).strip() + "
-"
+    return "\\n".join(out).strip() + "\\n"
 
 
 def render_html(report: dict) -> str:
@@ -143,7 +132,7 @@ def render_html(report: dict) -> str:
         return f"<ul>{lis}</ul>"
 
     def card(title: str, body: str) -> str:
-        return f"<section class="section"><h2>{title}</h2>{body}</section>"
+        return f"<section class=\"section\"><h2>{title}</h2>{body}</section>"
 
     overview = bullets(_get_section(report, "overview").get("bullets", []))
 
@@ -165,7 +154,11 @@ def render_html(report: dict) -> str:
     resume_html = bullets([r.get("text", "") for r in resume])
 
     linkedin_sentences = _get_section(report, "linkedin").get("sentences", [])
-    linkedin_html = f"<p>{' '.join(s.strip() for s in linkedin_sentences if s)}</p>" if linkedin_sentences else "<p>(none)</p>"
+    linkedin_html = (
+        f"<p>{' '.join(s.strip() for s in linkedin_sentences if s)}</p>"
+        if linkedin_sentences
+        else "<p>(none)</p>"
+    )
 
     highlights = _get_section(report, "highlights") or []
     highlights_html = "".join(
@@ -175,8 +168,13 @@ def render_html(report: dict) -> str:
 
     timeline = _get_section(report, "timeline") or []
     if timeline:
-        rows = "".join(f"<tr><td>{r.get('date','')}</td><td>{r.get('event','')}</td></tr>" for r in timeline)
-        timeline_html = f"<table><thead><tr><th>Date</th><th>Event</th></tr></thead><tbody>{rows}</tbody></table>"
+        rows = "".join(
+            f"<tr><td>{r.get('date','')}</td><td>{r.get('event','')}</td></tr>" for r in timeline
+        )
+        timeline_html = (
+            "<table><thead><tr><th>Date</th><th>Event</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>"
+        )
     else:
         timeline_html = "<p>(none)</p>"
 
@@ -191,14 +189,16 @@ def render_html(report: dict) -> str:
         ):
             items = ", ".join(_ensure_list(tech.get(key)))
             rows.append(f"<tr><td>{label}</td><td>{items}</td></tr>")
-        tech_html = f"<table><thead><tr><th>Category</th><th>Items</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+        tech_html = (
+            "<table><thead><tr><th>Category</th><th>Items</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>"
+        )
     else:
         tech_html = "<p>(none)</p>"
 
-    body = "
-".join(
+    body = "\n".join(
         [
-            f"<p class="meta">Generated at {generated_at}</p>",
+            f"<p class=\"meta\">Generated at {generated_at}</p>",
             card("Overview", overview),
             card("Key Changes", key_changes_html),
             card("Recommendations", recs_html),

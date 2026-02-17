@@ -286,19 +286,19 @@ PHASE2_RULES = """\
 Return JSON only (no Markdown, no code fences). Output must be a single valid JSON object
 with the following shape:
 
-{
-  "sections": {
-    "overview":{"bullets":["..."]},
-    "key_changes":[{"title":"<label>","project_id":"<id or null>","bullets":["..."],"tags":["..."]}],
-    "recommendations":[{"text":"...","priority":"low|medium|high","evidence_project_ids":["..."]}],
-    "resume_bullets":[{"text":"...","evidence_project_ids":["..."]}],
-    "linkedin":{"sentences":["..."]},
-    "highlights":[{"title":"...","rationale":"...","evidence_project_ids":["..."]}],
-    "timeline":[{"date":"YYYY-MM-DD","event":"...","project_ids":["..."]}],
-    "tech_inventory":{"languages":["..."],"frameworks":["..."],"ai_tools":["..."],"infra":["..."]}
-  },
-  "render_hints":{"preferred_outputs":["md","html"],"style":"concise","tone":"professional"}
-}
+{{
+  "sections": {{
+    "overview":{{"bullets":["..."]}},
+    "key_changes":[{{"title":"<label>","project_id":"<id or null>","bullets":["..."],"tags":["..."]}}],
+    "recommendations":[{{"text":"...","priority":"low|medium|high","evidence_project_ids":["..."]}}],
+    "resume_bullets":[{{"text":"...","evidence_project_ids":["..."]}}],
+    "linkedin":{{"sentences":["..."]}},
+    "highlights":[{{"title":"...","rationale":"...","evidence_project_ids":["..."]}}],
+    "timeline":[{{"date":"YYYY-MM-DD","event":"...","project_ids":["..."]}}],
+    "tech_inventory":{{"languages":["..."],"frameworks":["..."],"ai_tools":["..."],"infra":["..."]}}
+  }},
+  "render_hints":{{"preferred_outputs":["md","html"],"style":"concise","tone":"professional"}}
+}}
 
 Rules:
 - Output JSON only; no Markdown.

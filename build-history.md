@@ -1256,4 +1256,19 @@ Benchmark records stored in `references/benchmarks.jsonl`.
 
 ---
 
+## Milestone 11 — Renderer Fix (2026-02-17)
+
+**What happened**: Fixed JSON template formatting and renderer string escaping, then rendered the latest JSON output manually after the pipeline failed at Phase 2.5.
+
+### Changes
+
+- `run_pipeline.py`: escaped JSON braces in Phase 2 prompt format string to avoid `.format()` errors.
+- `render_report.py`: rebuilt with correct string escaping to avoid syntax errors during render.
+
+### Benchmarks
+
+- Not run for this milestone (pipeline failed before Phase 3; manual render executed).
+
+---
+
 *End of Build History*
