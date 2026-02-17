@@ -1,0 +1,144 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-01-31T09:15:00Z",
+  "resume_header": "Jane Doe Consulting, Mar 2024 \u2013 Present",
+  "sections": {
+    "overview": {
+      "bullets": [
+        "Active development across 8 projects spanning backend services, CLI tooling, and data pipelines; 94 commits in January",
+        "Shipped v2.0 of invoice-api with async processing and PDF generation; migrated from synchronous request-response to task queue architecture",
+        "Established project-wide test coverage baseline at 78%; integrated pre-commit hooks and linting across all active repos"
+      ]
+    },
+    "key_changes": [
+      {
+        "title": "invoice-api v2.0",
+        "project_id": "invoice-api",
+        "bullets": [
+          "Replaced synchronous PDF generation with Celery task queue backed by Redis; eliminated 30s+ request timeouts",
+          "Added Jinja2 templating layer for customizable invoice layouts with per-client branding support",
+          "Integrated Stripe webhook handler for payment status sync; idempotent event processing with deduplication key"
+        ],
+        "tags": ["backend", "perf", "payments"]
+      },
+      {
+        "title": "csv-pipeline refactor",
+        "project_id": "csv-pipeline",
+        "bullets": [
+          "Rewrote ingestion layer using pandas chunked reads to handle files >1GB without OOM errors",
+          "Added pluggable validator framework; ships with email, phone, and date validators out of the box"
+        ],
+        "tags": ["data", "reliability"]
+      },
+      {
+        "title": "devbox CLI",
+        "project_id": "devbox",
+        "bullets": [
+          "New `devbox snapshot` command creates reproducible environment archives with pinned dependency manifests",
+          "Added shell completion support for bash and zsh via argcomplete"
+        ],
+        "tags": ["tooling", "dx"]
+      },
+      {
+        "title": "auth-service hardening",
+        "project_id": "auth-service",
+        "bullets": [
+          "Rotated JWT signing keys with zero-downtime via dual-validation window during transition period",
+          "Added rate limiting middleware (sliding window, Redis-backed) on all unauthenticated endpoints"
+        ],
+        "tags": ["security", "reliability"]
+      }
+    ],
+    "recommendations": [
+      {
+        "text": "Add end-to-end tests for the Stripe webhook handler — payment flows are not covered by unit tests and a regression here would be high severity",
+        "priority": "high",
+        "evidence_project_ids": ["invoice-api"]
+      },
+      {
+        "text": "Extract the chunked-read logic from csv-pipeline into a shared utility library — the same pattern is being duplicated in data-importer",
+        "priority": "medium",
+        "evidence_project_ids": ["csv-pipeline", "data-importer"]
+      },
+      {
+        "text": "Document the dual-validation JWT rotation procedure in the auth-service runbook before the next key rotation",
+        "priority": "medium",
+        "evidence_project_ids": ["auth-service"]
+      },
+      {
+        "text": "Pin the Redis client version in invoice-api — currently using a floating minor version that could break Celery compatibility on next deploy",
+        "priority": "low",
+        "evidence_project_ids": ["invoice-api"]
+      }
+    ],
+    "resume_bullets": [
+      {
+        "text": "Redesigned invoice-api PDF generation using Celery + Redis task queue, eliminating 30s+ synchronous timeouts and enabling per-client branded layouts via Jinja2 templating",
+        "evidence_project_ids": ["invoice-api"]
+      },
+      {
+        "text": "Integrated Stripe webhook handler with idempotent event processing and deduplication, syncing payment status reliably under concurrent delivery",
+        "evidence_project_ids": ["invoice-api"]
+      },
+      {
+        "text": "Refactored csv-pipeline ingestion to chunked pandas reads, enabling processing of files >1GB without memory errors; built pluggable validator framework with email, phone, and date validators",
+        "evidence_project_ids": ["csv-pipeline"]
+      },
+      {
+        "text": "Hardened auth-service with zero-downtime JWT key rotation (dual-validation window) and Redis-backed sliding-window rate limiting on unauthenticated endpoints",
+        "evidence_project_ids": ["auth-service"]
+      },
+      {
+        "text": "Shipped devbox CLI snapshot command producing reproducible environment archives with pinned dependency manifests; added bash/zsh shell completion",
+        "evidence_project_ids": ["devbox"]
+      },
+      {
+        "text": "Established 78% test coverage baseline across 8 active repos; integrated pre-commit hooks and linting into all project CI pipelines",
+        "evidence_project_ids": ["invoice-api", "csv-pipeline", "auth-service", "devbox"]
+      }
+    ],
+    "linkedin": {
+      "sentences": [
+        "January was a productive month — I shipped invoice-api v2.0 with async PDF generation via Celery and Redis, which finally eliminated the 30-second timeouts that had been plaguing the service.",
+        "I also hardened the auth stack with zero-downtime JWT key rotation and rate limiting, refactored a data pipeline to handle large files without OOM errors, and added snapshot support to an internal dev environment CLI.",
+        "Across 8 projects and 94 commits, the common thread was reliability: making things that were flaky predictable, and things that were slow fast.",
+        "Happy to talk through any of these if you're working on similar problems."
+      ]
+    },
+    "highlights": [
+      {
+        "title": "Zero-downtime JWT key rotation",
+        "rationale": "Dual-validation window during transition is a non-obvious pattern that requires careful sequencing — demonstrates security-aware production operations thinking",
+        "evidence_project_ids": ["auth-service"]
+      },
+      {
+        "title": "Celery + Redis async PDF pipeline",
+        "rationale": "Architectural shift from sync to async removed an entire class of timeout failures; the Stripe webhook idempotency layer shows end-to-end production reliability thinking",
+        "evidence_project_ids": ["invoice-api"]
+      },
+      {
+        "title": "Pluggable validator framework",
+        "rationale": "Designed for extension without modification; ships with concrete validators but the interface allows arbitrary validation rules — good API design under real-world constraints",
+        "evidence_project_ids": ["csv-pipeline"]
+      }
+    ],
+    "timeline": [
+      {"date": "2026-01-28", "event": "auth-service: JWT key rotation + rate limiting shipped to production", "project_ids": ["auth-service"]},
+      {"date": "2026-01-22", "event": "invoice-api v2.0 released: async PDF generation + Stripe webhooks", "project_ids": ["invoice-api"]},
+      {"date": "2026-01-17", "event": "csv-pipeline: chunked reads + validator framework merged", "project_ids": ["csv-pipeline"]},
+      {"date": "2026-01-11", "event": "devbox: snapshot command + shell completion shipped", "project_ids": ["devbox"]},
+      {"date": "2026-01-04", "event": "Coverage baseline established at 78% across all active repos", "project_ids": ["invoice-api", "csv-pipeline", "auth-service", "devbox"]}
+    ],
+    "tech_inventory": {
+      "languages": ["Python", "Bash", "SQL"],
+      "frameworks": ["FastAPI", "Celery", "pandas", "pytest", "Jinja2"],
+      "ai_tools": ["Claude Code", "Claude Sonnet"],
+      "infra": ["Redis", "PostgreSQL", "Docker", "Stripe", "git"]
+    }
+  },
+  "render_hints": {
+    "preferred_outputs": ["md", "html"],
+    "style": "concise",
+    "tone": "professional"
+  }
+}

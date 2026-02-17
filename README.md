@@ -4,10 +4,10 @@ A Claude Code skill that scans your local development environment — git repos,
 
 **It turns this:**
 ```
-/lump/apps/
-  secret-sauce-proj/   (git: 47 commits, Feb 2026)
-  invoke-codex-from-claude/
-  osint-framework/
+~/projects/
+  my-api-service/    (git: 47 commits, Feb 2026)
+  my-cli-tool/
+  my-web-app/
   ...
 ~/.codex/sessions/
   50 session rollout files across Jan-Feb 2026
@@ -35,34 +35,17 @@ A Claude Code skill that scans your local development environment — git repos,
 
 ## Sample Output
 
-The following is real output generated from this author's environment.
+Example outputs generated from [`references/examples/example-report.json`](skills/dev-activity-report-skill/references/examples/example-report.json) using fictional data. Your actual report is generated from your git history, session logs, and project structure.
 
-### Resume Bullets
+### HTML Report
 
-**ngallodev Software, Jan 2025 – Present**
+![HTML report screenshot](skills/dev-activity-report-skill/references/examples/screenshot-html.png)
 
-- Architected a .NET 9 RAG pipeline API with multi-layer document/chunk model, EF Core + SQLite persistence, background ingestion channel, and service interface contracts; implemented using a structured multi-agent Codex execution plan with per-task model selection and sequential build verification
-- Designed and codified a human-Claude-Codex orchestration system with formal task readiness gates, risk-tiered routing, per-task-type delegation metrics, and a self-tightening spec feedback loop triggered when rolling success rates fall below 70%
-- Built `invoke-codex-from-claude`, a Claude Code skill wrapping `codex exec` with push-notification callbacks, structured JSON run logs, and one-command install/uninstall — operationalizing a 50-session Claude+Codex collaboration loop across 6 weeks
-- Engineered a MariaDB dual-mode bulk loading toolkit achieving 50,000–500,000+ rows/second on a 256GB/28-core server, including automated mode-switching SQL scripts, performance configuration, real-time monitoring, and data repair utilities
-- Developed a full-stack OSINT intelligence platform (.NET 8 + React 18/TypeScript + MariaDB + Docker + Ollama) with pluggable integrations for SpiderFoot, Sherlock, and theHarvester, and local LLM-backed analysis
-- Extended open-source `subgen` with a persistent, thread-safe subtitle cache module — Docker-persistent, test-covered, with CLI management — reducing startup scan time on large media libraries
-- Built `dev-activity-report-skill`, a self-documenting portfolio tool that scans local dev environments, performs per-project cache fingerprinting, and auto-generates resume bullets via a three-phase Claude+Haiku+Codex pipeline — reducing scan cost ~65% through model delegation
+### Markdown Report
 
-### LinkedIn Summary
+![Markdown report screenshot](skills/dev-activity-report-skill/references/examples/screenshot-md.png)
 
-> Over the past year I've been building at the intersection of software engineering and practical AI orchestration — not just using AI tools, but architecting the workflows that make multi-agent systems reliable and measurable. I designed a human-Claude-Codex delegation pipeline with formal readiness gates, risk routing, and a metrics feedback loop that auto-tightens specs when failure rates spike, and built the `invoke-codex-from-claude` CLI tooling to operationalize it across 50+ Codex sessions in six weeks. On the product side I've built a .NET 9 RAG pipeline, a full-stack OSINT platform with local LLM integration, a high-throughput MariaDB bulk-loading toolkit for a 256GB server, and a self-documenting dev activity scanner that turns git history into resume bullets via a cost-optimized Claude+Haiku+Codex pipeline. The through-line is the same everywhere: engineering real systems that happen to use AI, rather than AI demos that happen to look like systems.
-
-### Hiring Manager Highlights
-
-**1. Delegation metrics + self-tightening learning loop**
-A global `delegation-metrics.jsonl` tracks every Codex job — model, cost, duration, status, failure class, retry count. Every 10 jobs per task type, rolling success rate is computed; if it drops below 70%, specs tighten automatically. This is operational infrastructure *around* AI to make it reliable at scale.
-
-**2. Parallel Claude + Codex skills ecosystems**
-Skills infrastructure exists for both Claude (`~/.claude/skills/`) and Codex (`~/.codex/skills/`), with consistent invocation patterns and per-agent trust tiering. 50 Codex sessions in 6 weeks across core projects, operating under 57 curated permission rules.
-
-**3. `dev-activity-report-skill` itself**
-A three-phase pipeline (Haiku data gathering → Sonnet synthesis → Codex cache writes) that scans git history, performs per-project cache fingerprinting, includes Codex session analytics, and auto-generates resume bullets — with measured 65% cost reduction from model delegation. The tool itself is the demonstration.
+See [`references/examples/example-report.md`](skills/dev-activity-report-skill/references/examples/example-report.md) and [`references/examples/example-report.html`](skills/dev-activity-report-skill/references/examples/example-report.html) for the full rendered files.
 
 ---
 
@@ -176,10 +159,10 @@ Edit `.env` with your values (all tunables live here):
 
 ```bash
 # Where your projects live
-APPS_DIR=/home/me/projects
+APPS_DIR=~/projects
 
-# Additional one-off directories to include
-EXTRA_SCAN_DIRS=/usr/local/lib/mydb
+# Additional one-off directories to include (leave blank if none)
+EXTRA_SCAN_DIRS=
 
 # Where to write reports/logs (defaults to ~ if omitted)
 REPORT_OUTPUT_DIR=~
@@ -188,7 +171,7 @@ REPORT_OUTPUT_FORMATS=md,html
 INCLUDE_SOURCE_PAYLOAD=false
 
 # Your name/company for the resume header
-RESUME_HEADER=Jane Smith Consulting, Jan 2024 – Present
+RESUME_HEADER="Your Name Consulting, Jan 2025 – Present"
 
 # Optional: adjust hashing + model picks
 ALLOWED_FILE_EXTS=".py,.ts,.js,.tsx,.cs,.csproj,.md,.txt,.json,.toml,.yaml,.yml,.sql,.html,.css,.sh"
@@ -285,14 +268,14 @@ Use the consolidator to merge all `dev-activity-report-*.md` outputs and `codex-
 
 ```bash
 python3 skills/dev-activity-report-skill/scripts/consolidate_reports.py \
-  --test-report-root /lump/apps/dev-activity-report-skill \
-  --report-root /home/nate \
-  --output /home/nate/dev-activity-report-aggregate.md
+  --test-report-root <path/to/dev-activity-report-skill> \
+  --report-root ~ \
+  --output ~/dev-activity-report-aggregate.md
 ```
 
 Templated values are provided via environment variables:
 
-- `DAR_TEST_REPORT_ROOT` (default: `/lump/apps/dev-activity-report-skill`)
+- `DAR_TEST_REPORT_ROOT` (default: `<path/to/dev-activity-report-skill>`)
 - `DAR_REPORT_ROOT` (default: `~`)
 - `DAR_TEST_REPORT_GLOB` (default: `codex-test-report-*.md`)
 - `DAR_REPORT_GLOB` (default: `dev-activity-report-*.md`)

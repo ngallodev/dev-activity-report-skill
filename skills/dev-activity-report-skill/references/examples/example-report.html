@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dev Activity Report</title>
+  <style>
+  /* ── Reset & base ─────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    line-height: 1.6;
+    padding: 2rem 1rem;
+  }
+
+  /* ── Layout ───────────────────────────────────────────────────────────── */
+  main { max-width: 860px; margin: 0 auto; }
+
+  /* ── Header ───────────────────────────────────────────────────────────── */
+  header.report-header {
+    margin-bottom: 2rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid #30363d;
+  }
+  header.report-header h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #f0f6fc;
+    margin-bottom: .25rem;
+  }
+  header.report-header .subhead { color: #8b949e; font-size: .95rem; margin-bottom: .2rem; }
+  .meta { color: #6e7681; font-size: .8rem; }
+
+  /* ── Cards ────────────────────────────────────────────────────────────── */
+  article {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+  }
+  article h2 {
+    font-size: .75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: #8b949e;
+    border-bottom: 1px solid #21262d;
+    padding-bottom: .5rem;
+    margin-bottom: 1rem;
+  }
+  article h3 {
+    font-size: .95rem;
+    font-weight: 600;
+    color: #79c0ff;
+    margin: 1rem 0 .35rem;
+  }
+  article h3:first-of-type { margin-top: .1rem; }
+
+  /* ── Lists ────────────────────────────────────────────────────────────── */
+  ul { list-style: none; padding: 0; }
+  ul li {
+    position: relative;
+    padding-left: 1.1rem;
+    margin-bottom: .4rem;
+    color: #c9d1d9;
+    font-size: .9rem;
+    line-height: 1.6;
+  }
+  ul li::before {
+    content: "▸";
+    position: absolute;
+    left: 0;
+    color: #388bfd;
+    font-size: .7rem;
+    top: .3rem;
+  }
+
+  /* ── LinkedIn blockquote ──────────────────────────────────────────────── */
+  blockquote.linkedin {
+    border-left: 3px solid #388bfd;
+    padding: .75rem 1rem;
+    background: #1c2433;
+    border-radius: 0 6px 6px 0;
+    color: #adbac7;
+    font-style: italic;
+    font-size: .92rem;
+    line-height: 1.65;
+  }
+
+  /* ── Priority badges ──────────────────────────────────────────────────── */
+  .priority-high {
+    display: inline-block;
+    background: #3d1a1a;
+    color: #f85149;
+    font-size: .65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    padding: .1rem .4rem;
+    border-radius: 4px;
+    margin-left: .45rem;
+    vertical-align: middle;
+  }
+  .priority-medium {
+    display: inline-block;
+    background: #2d1f00;
+    color: #d29922;
+    font-size: .65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    padding: .1rem .4rem;
+    border-radius: 4px;
+    margin-left: .45rem;
+    vertical-align: middle;
+  }
+
+  /* ── Tables ───────────────────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  thead tr { border-bottom: 1px solid #30363d; }
+  th {
+    text-align: left;
+    padding: .45rem .75rem;
+    font-size: .72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #8b949e;
+  }
+  td {
+    padding: .5rem .75rem;
+    border-bottom: 1px solid #21262d;
+    color: #c9d1d9;
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #1c2128; }
+
+  /* ── Section divider ──────────────────────────────────────────────────── */
+  hr.section-divider {
+    border: none;
+    border-top: 1px dashed #30363d;
+    margin: .25rem 0 1rem;
+  }
+</style>
+</head>
+<body>
+  <main class="container">
+    <header class="report-header">
+      <h1>Dev Activity Report</h1>
+      <div class="subhead">Jane Doe Consulting, Mar 2024 – Present</div>
+      <p class="meta">Generated: 2026-01-31T09:15:00Z</p>
+    </header>
+    <article>
+<h2>Overview</h2>
+<ul><li>Active development across 8 projects spanning backend services, CLI tooling, and data pipelines; 94 commits in January</li><li>Shipped v2.0 of invoice-api with async processing and PDF generation; migrated from synchronous request-response to task queue architecture</li><li>Established project-wide test coverage baseline at 78%; integrated pre-commit hooks and linting across all active repos</li></ul>
+</article>
+<article>
+<h2>Key Changes</h2>
+<h3>invoice-api v2.0</h3><ul><li>Replaced synchronous PDF generation with Celery task queue backed by Redis; eliminated 30s+ request timeouts</li><li>Added Jinja2 templating layer for customizable invoice layouts with per-client branding support</li><li>Integrated Stripe webhook handler for payment status sync; idempotent event processing with deduplication key</li></ul>
+<h3>csv-pipeline refactor</h3><ul><li>Rewrote ingestion layer using pandas chunked reads to handle files >1GB without OOM errors</li><li>Added pluggable validator framework; ships with email, phone, and date validators out of the box</li></ul>
+<h3>devbox CLI</h3><ul><li>New `devbox snapshot` command creates reproducible environment archives with pinned dependency manifests</li><li>Added shell completion support for bash and zsh via argcomplete</li></ul>
+<h3>auth-service hardening</h3><ul><li>Rotated JWT signing keys with zero-downtime via dual-validation window during transition period</li><li>Added rate limiting middleware (sliding window, Redis-backed) on all unauthenticated endpoints</li></ul>
+</article>
+<article>
+<h2>Recommendations</h2>
+<ul><li>Add end-to-end tests for the Stripe webhook handler — payment flows are not covered by unit tests and a regression here would be high severity<span class="priority-high">high</span></li><li>Extract the chunked-read logic from csv-pipeline into a shared utility library — the same pattern is being duplicated in data-importer<span class="priority-medium">medium</span></li><li>Document the dual-validation JWT rotation procedure in the auth-service runbook before the next key rotation<span class="priority-medium">medium</span></li><li>Pin the Redis client version in invoice-api — currently using a floating minor version that could break Celery compatibility on next deploy</li></ul>
+</article>
+<hr class="section-divider">
+<article>
+<h2>Resume Bullets</h2>
+<ul><li>Redesigned invoice-api PDF generation using Celery + Redis task queue, eliminating 30s+ synchronous timeouts and enabling per-client branded layouts via Jinja2 templating</li><li>Integrated Stripe webhook handler with idempotent event processing and deduplication, syncing payment status reliably under concurrent delivery</li><li>Refactored csv-pipeline ingestion to chunked pandas reads, enabling processing of files >1GB without memory errors; built pluggable validator framework with email, phone, and date validators</li><li>Hardened auth-service with zero-downtime JWT key rotation (dual-validation window) and Redis-backed sliding-window rate limiting on unauthenticated endpoints</li><li>Shipped devbox CLI snapshot command producing reproducible environment archives with pinned dependency manifests; added bash/zsh shell completion</li><li>Established 78% test coverage baseline across 8 active repos; integrated pre-commit hooks and linting into all project CI pipelines</li></ul>
+</article>
+<article>
+<h2>LinkedIn</h2>
+<blockquote class="linkedin">January was a productive month — I shipped invoice-api v2.0 with async PDF generation via Celery and Redis, which finally eliminated the 30-second timeouts that had been plaguing the service. I also hardened the auth stack with zero-downtime JWT key rotation and rate limiting, refactored a data pipeline to handle large files without OOM errors, and added snapshot support to an internal dev environment CLI. Across 8 projects and 94 commits, the common thread was reliability: making things that were flaky predictable, and things that were slow fast. Happy to talk through any of these if you're working on similar problems.</blockquote>
+</article>
+<hr class="section-divider">
+<article>
+<h2>Highlights</h2>
+<ul><li><strong>Zero-downtime JWT key rotation</strong> — Dual-validation window during transition is a non-obvious pattern that requires careful sequencing — demonstrates security-aware production operations thinking</li><li><strong>Celery + Redis async PDF pipeline</strong> — Architectural shift from sync to async removed an entire class of timeout failures; the Stripe webhook idempotency layer shows end-to-end production reliability thinking</li><li><strong>Pluggable validator framework</strong> — Designed for extension without modification; ships with concrete validators but the interface allows arbitrary validation rules — good API design under real-world constraints</li></ul>
+</article>
+<article>
+<h2>Timeline</h2>
+<table><thead><tr><th>Date</th><th>Event</th></tr></thead><tbody><tr><td>2026-01-28</td><td>auth-service: JWT key rotation + rate limiting shipped to production</td></tr><tr><td>2026-01-22</td><td>invoice-api v2.0 released: async PDF generation + Stripe webhooks</td></tr><tr><td>2026-01-17</td><td>csv-pipeline: chunked reads + validator framework merged</td></tr><tr><td>2026-01-11</td><td>devbox: snapshot command + shell completion shipped</td></tr><tr><td>2026-01-04</td><td>Coverage baseline established at 78% across all active repos</td></tr></tbody></table>
+</article>
+<article>
+<h2>Tech Inventory</h2>
+<table><thead><tr><th>Category</th><th>Items</th></tr></thead><tbody><tr><td>Languages</td><td>Python, Bash, SQL</td></tr><tr><td>Frameworks / Libs</td><td>FastAPI, Celery, pandas, pytest, Jinja2</td></tr><tr><td>AI Tools</td><td>Claude Code, Claude Sonnet</td></tr><tr><td>Infra / Tooling</td><td>Redis, PostgreSQL, Docker, Stripe, git</td></tr></tbody></table>
+</article>
+  </main>
+</body>
+</html>

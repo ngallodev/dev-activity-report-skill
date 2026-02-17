@@ -1271,4 +1271,52 @@ Benchmark records stored in `references/benchmarks.jsonl`.
 
 ---
 
+## Milestone 12 — Renderer Styling Overhaul (2026-02-17)
+
+**What happened**: The Markdown and HTML outputs produced by `render_report.py` had poor visual quality compared to the old freeform Markdown approach used before the Phase 2 → JSON migration.
+
+### Root Causes
+
+The old pipeline had Phase 2 write freeform Markdown directly; the LLM produced naturally well-formatted output. The new JSON-based pipeline relies on `render_report.py` to reconstruct Markdown mechanically, and the first implementation had multiple styling defects:
+
+1. **No H1 title block** — output started with `## Overview` directly; no document title, resume header, or generated timestamp.
+2. **Key Changes used `- **title**` with indented sub-bullets** — visually flat; should use `### title` subheadings with bullet list underneath.
+3. **LinkedIn rendered as flat paragraph** — should be a `> blockquote` for visual callout.
+4. **Section spacing** — sections joined with `"\n".join(out)` using `"\n## ..."` prefixes produced inconsistent whitespace.
+5. **Recommendations had no priority indication** — JSON carries `priority: high/medium/low` but it was discarded.
+6. **Tech Inventory** emitted empty rows for missing keys — now skips rows with no items.
+7. **HTML `card()` used `<section class="section">`** — PicoCSS v2 expects `<article>` for card-like styling.
+8. **HTML had no page header** — no H1, no resume_header, no timestamp at top.
+9. **HTML CSS** — missing styles for article cards, h3 sub-headings, blockquote callout, priority badges, section dividers, table formatting.
+
+### Changes — `render_report.py`
+
+**Markdown (`render_markdown`):**
+- Added H1 title block with `resume_header` (bold) and `generated_at` (italic) from JSON root.
+- Rebuilt section assembly: each section is a self-contained string joined with `"\n\n---\n\n"` — clean `---` horizontal rules between every section.
+- Key Changes: each item now `### {title}` + bullet list (was `- **title**` + indented bullets).
+- LinkedIn: renders as `> {paragraph}` blockquote.
+- Recommendations: appends `` `HIGH` `` / `` `MEDIUM` `` inline code tag for high/medium priority.
+- Tech Inventory: skips empty category rows.
+- Table alignment: `|:---|:---|` (explicit left-align).
+
+**HTML (`render_html`):**
+- `card()` replaced with `article()` — wraps in `<article>` for PicoCSS v2 card styling.
+- Added `<header class="report-header">` with H1, resume_header, and meta timestamp.
+- LinkedIn as `<blockquote class="linkedin">` with blue left-border callout style.
+- Recommendations render priority as colored `<span>` badges.
+- `<hr class="section-divider">` separators between logical sections.
+- Full CSS rewrite: article card styling (white bg, shadow, rounded), h2 uppercase labels, h3 sub-headings, table with header background + hover rows, blockquote callout, priority badge colors.
+- Moved PicoCSS `<link>` to `<head>` directly.
+
+### Smoke Test
+
+Rendered against a synthetic JSON fixture with all sections populated. Exit code 0, both `.md` and `.html` output clean.
+
+### Benchmarks
+
+- Not run for this milestone (styling-only change, no pipeline execution).
+
+---
+
 *End of Build History*
