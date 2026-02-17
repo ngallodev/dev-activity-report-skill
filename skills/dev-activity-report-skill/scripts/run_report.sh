@@ -68,12 +68,57 @@ PHASE2_OUT="$OUTPUT_DIR/codex-phase2-sections.json"
 PHASE2_JSON="$OUTPUT_DIR/${BASE_NAME}.json"
 
 FOREGROUND=false
-if [[ "${1:-}" == "--foreground" ]]; then
-  FOREGROUND=true
-fi
+REFRESH=false
+SINCE_ARG="${REPORT_SINCE:-}"
+ROOT_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --foreground)
+      FOREGROUND=true
+      shift
+      ;;
+    --refresh)
+      REFRESH=true
+      shift
+      ;;
+    --since)
+      if [[ $# -lt 2 ]]; then
+        echo "--since requires a value" >&2
+        exit 1
+      fi
+      SINCE_ARG="$2"
+      shift 2
+      ;;
+    --root)
+      if [[ $# -lt 2 ]]; then
+        echo "--root requires a value" >&2
+        exit 1
+      fi
+      ROOT_ARGS+=("$2")
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
 
 if [[ "$FOREGROUND" == "false" ]]; then
-  nohup "$0" --foreground >"$LOG_FILE" 2>&1 &
+  CMD=("$0" "--foreground")
+  if [[ -n "$SINCE_ARG" ]]; then
+    CMD+=("--since" "$SINCE_ARG")
+  fi
+  if [[ "$REFRESH" == "true" ]]; then
+    CMD+=("--refresh")
+  fi
+  if [[ ${#ROOT_ARGS[@]} -gt 0 ]]; then
+    for root in "${ROOT_ARGS[@]}"; do
+      CMD+=("--root" "$root")
+    done
+  fi
+  nohup "${CMD[@]}" >"$LOG_FILE" 2>&1 &
   exit 0
 fi
 
@@ -85,9 +130,17 @@ fi
 
 function require_env () {
   local missing=()
-  for key in APPS_DIR CODEX_HOME CLAUDE_HOME; do
-    local val="${!key:-}"
-    if [[ -z "$val" ]]; then
+  local apps_ok=false
+  if [[ ${#ROOT_ARGS[@]} -gt 0 ]]; then
+    apps_ok=true
+  elif [[ -n "${APPS_DIRS:-}" || -n "${APPS_DIR:-}" ]]; then
+    apps_ok=true
+  fi
+  if [[ "$apps_ok" != "true" ]]; then
+    missing+=("APPS_DIR/APPS_DIRS")
+  fi
+  for key in CODEX_HOME CLAUDE_HOME; do
+    if [[ -z "${!key:-}" ]]; then
       missing+=("$key")
     fi
   done
@@ -110,13 +163,19 @@ fi
 require_env
 
 WORKSPACE_DIR="$(pwd -P)"
-python3 - "$WORKSPACE_DIR" "$APPS_DIR" "$EXTRA_SCAN_DIRS" "$OUTPUT_DIR" "$PHASE1_MODEL" "$PHASE15_MODEL" "$PHASE2_MODEL" "$PHASE3_MODEL" "$REPORT_SANDBOX" <<'PY'
+if [[ ${#ROOT_ARGS[@]} -gt 0 ]]; then
+  ROOTS_RAW="${ROOT_ARGS[*]}"
+else
+  ROOTS_RAW="${APPS_DIRS:-${APPS_DIR:-}}"
+fi
+
+python3 - "$WORKSPACE_DIR" "$ROOTS_RAW" "$EXTRA_SCAN_DIRS" "$OUTPUT_DIR" "$PHASE1_MODEL" "$PHASE15_MODEL" "$PHASE2_MODEL" "$PHASE3_MODEL" "$REPORT_SANDBOX" <<'PY'
 import os
 import sys
 from pathlib import Path
 
 workspace = Path(sys.argv[1]).resolve()
-apps_dir = sys.argv[2]
+roots_raw = sys.argv[2]
 extra_dirs_raw = sys.argv[3]
 output_dir = sys.argv[4]
 models = sys.argv[5:9]
@@ -133,7 +192,8 @@ def split_paths(raw: str) -> list[str]:
         parts.append(chunk)
     return parts
 
-paths = [apps_dir, output_dir]
+paths = split_paths(roots_raw)
+paths.append(output_dir)
 paths.extend(split_paths(extra_dirs_raw))
 
 outside = []
@@ -163,8 +223,22 @@ if [[ $? -eq 2 ]]; then
 fi
 
 echo "== Phase 1 ($PHASE1_MODEL): data gathering =="
+PHASE1_CMD=(python3 "$SKILL_DIR/scripts/phase1_runner.py")
+if [[ -n "$SINCE_ARG" ]]; then
+  PHASE1_CMD+=(--since "$SINCE_ARG")
+fi
+if [[ "$REFRESH" == "true" ]]; then
+  PHASE1_CMD+=(--refresh)
+fi
+if [[ ${#ROOT_ARGS[@]} -gt 0 ]]; then
+  for root in "${ROOT_ARGS[@]}"; do
+    PHASE1_CMD+=(--root "$root")
+  done
+fi
+PHASE1_CMD_STR="$(printf '%q ' "${PHASE1_CMD[@]}")"
+PHASE1_CMD_STR="${PHASE1_CMD_STR% }"
 "$CODEX_BIN" exec -m "$PHASE1_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE1_OUT" - <<EOF
-Please run \`python3 "$SKILL_DIR/scripts/phase1_runner.py"\` and print only the JSON output produced by the script.
+Please run \`$PHASE1_CMD_STR\` and print only the JSON output produced by the script.
 EOF
 
 echo "== Phase 1.5 ($PHASE15_MODEL): draft =="
@@ -308,4 +382,8 @@ PY
 
 EOF
 
-notify_done "Report completed: $REPORT_OUT"
+PRIMARY_FORMAT="${REPORT_OUTPUT_FORMATS%%,*}"
+if [[ -z "$PRIMARY_FORMAT" ]]; then
+  PRIMARY_FORMAT="md"
+fi
+notify_done "Report completed: $OUTPUT_DIR/${BASE_NAME}.${PRIMARY_FORMAT}"

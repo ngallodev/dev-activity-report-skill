@@ -180,6 +180,46 @@ class TestPathHandling:
         exts4 = parse_exts(".py, .js , .ts")
         assert exts4 == {".py", ".js", ".ts"}
 
+    def test_resolve_scan_roots_prefers_cli(self, tmp_path):
+        """CLI roots must override env roots and be deduplicated."""
+        from phase1_runner import resolve_scan_roots
+
+        env = {
+            "APPS_DIR": str(tmp_path / "apps-default"),
+            "APPS_DIRS": f"{tmp_path}/apps-a,{tmp_path}/apps-b",
+        }
+        roots = resolve_scan_roots([str(tmp_path / "apps-x"), str(tmp_path / "apps-x")], env)
+        assert len(roots) == 1
+        assert str(roots[0]).endswith("apps-x")
+
+    def test_resolve_scan_roots_reads_env_dirs(self, tmp_path):
+        """APPS_DIRS env must expand into multiple roots."""
+        from phase1_runner import resolve_scan_roots
+
+        env = {
+            "APPS_DIR": str(tmp_path / "apps-default"),
+            "APPS_DIRS": f"{tmp_path}/apps-a {tmp_path}/apps-b",
+        }
+        roots = resolve_scan_roots([], env)
+        assert len(roots) == 2
+        assert any(str(root).endswith("apps-a") for root in roots)
+        assert any(str(root).endswith("apps-b") for root in roots)
+
+    def test_resolve_since_precedence(self):
+        """--since must override env fallback keys in precedence order."""
+        from phase1_runner import resolve_since
+
+        env = {"REPORT_SINCE": "2026-01-01", "GIT_SINCE": "2025-01-01", "SINCE": "2024-01-01"}
+        assert resolve_since("2026-02-01", env) == "2026-02-01"
+        assert resolve_since(None, env) == "2026-01-01"
+
+    def test_should_run_interactive_skips_in_ci(self, monkeypatch):
+        """Interactive review must be bypassed in CI."""
+        from run_pipeline import should_run_interactive
+
+        monkeypatch.setenv("CI", "true")
+        assert should_run_interactive(True) is False
+
 
 class TestOutputConfiguration:
     """Output format configuration must work correctly."""
