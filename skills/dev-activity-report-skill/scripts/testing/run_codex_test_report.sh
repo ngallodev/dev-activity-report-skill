@@ -43,7 +43,7 @@ You are a senior resume/portfolio writer with excellent creative writing and dee
 
 - Resume Bullets (5-8 bullets, achievement-oriented, past tense,
 action verbs, quantified where possible):
-For use under "ngallodev Software, Jan 2025 - Present" on a resume.
+For use under "${RESUME_HEADER:-Your Name, Jan 2025 - Present}" on a resume.
 
 - LinkedIn Summary Paragraph (3-4 sentences, first person, 
 professional but conversational):

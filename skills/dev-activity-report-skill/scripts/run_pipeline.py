@@ -319,7 +319,7 @@ def call_phase2(
     env: dict[str, str],
     claude_bin: str,
 ) -> tuple[str, dict[str, int]]:
-    resume_header = env.get("RESUME_HEADER", "ngallodev Software, Jan 2025 – Present")
+    resume_header = env.get("RESUME_HEADER", "Your Name, Jan 2025 – Present")
     rules = PHASE2_RULES.format(resume_header=resume_header)
     prompt = (
         f"{rules}\n\n"
@@ -458,7 +458,7 @@ def run(foreground: bool = True) -> int:
         subprocess.run([sys.executable, str(setup)] + flag, check=False)
         env = load_env()
 
-    apps_dir = expand(env.get("APPS_DIR", "/lump/apps"))
+    apps_dir = expand(env.get("APPS_DIR", "~/projects"))
     codex_home = expand(env.get("CODEX_HOME", "~/.codex"))
     claude_home = expand(env.get("CLAUDE_HOME", "~/.claude"))
     for key, val in (("APPS_DIR", apps_dir), ("CODEX_HOME", codex_home), ("CLAUDE_HOME", claude_home)):

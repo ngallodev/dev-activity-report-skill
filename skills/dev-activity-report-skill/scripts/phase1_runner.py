@@ -65,13 +65,13 @@ def _matches_ignore(rel_path: str, patterns: list[str]) -> bool:
     return False
 
 DEFAULTS: dict[str, str] = {
-    "APPS_DIR": "/lump/apps",
-    "EXTRA_SCAN_DIRS": "/usr/local/lib/mariadb",
+    "APPS_DIR": "~/projects",
+    "EXTRA_SCAN_DIRS": "",
     "CODEX_HOME": "~/.codex",
     "CLAUDE_HOME": "~/.claude",
     "REPORT_OUTPUT_DIR": "~",
     "REPORT_FILENAME_PREFIX": "dev-activity-report",
-    "RESUME_HEADER": "ngallodev Software, Jan 2025 – Present",
+    "RESUME_HEADER": "Your Name, Jan 2025 – Present",
     "PHASE1_MODEL": "haiku",
     "PHASE15_MODEL": "haiku",
     "PHASE2_MODEL": "sonnet",

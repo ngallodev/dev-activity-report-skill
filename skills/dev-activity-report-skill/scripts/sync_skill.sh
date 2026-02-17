@@ -37,9 +37,9 @@ for arg in "$@"; do
   esac
 done
 
-# Files/dirs to exclude from sync (runtime artifacts, caches, secrets)
+# Files/dirs to exclude from sync (runtime artifacts and caches)
+# .env is included intentionally — no secrets when SUBSCRIPTION_MODE=true
 RSYNC_EXCLUDES=(
-  --exclude=".env"
   --exclude=".phase1-cache.json"
   --exclude=".phase1-cache.tmp"
   --exclude=".dev-report-cache.md"
@@ -95,7 +95,6 @@ fi
 
 # Build exclude args for diff (same exclusion list)
 DIFF_EXCLUDES=(
-  --exclude=".env"
   --exclude=".phase1-cache.json"
   --exclude=".phase1-cache.tmp"
   --exclude=".dev-report-cache.md"

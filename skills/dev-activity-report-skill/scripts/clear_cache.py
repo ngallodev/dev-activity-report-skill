@@ -18,7 +18,7 @@ except ImportError:
     dotenv_values = None
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
-APPS_DIR_DEFAULT = "/lump/apps"
+APPS_DIR_DEFAULT = "~/projects"
 
 
 def load_env() -> dict[str, str]:

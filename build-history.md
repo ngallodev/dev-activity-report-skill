@@ -1198,6 +1198,20 @@ Benchmark records stored in `references/benchmarks.jsonl`.
 
 ---
 
+## Defaults & Messaging Cleanup (2026-02-17)
+
+**What changed**:
+- Swapped default scan roots to `~/projects` and cleared `EXTRA_SCAN_DIRS`, keeping examples but avoiding hardcoded `/lump` paths.
+- Normalized resume header copy to `Your Name …` across env templates, Python defaults, and shell prompts.
+- Added optional `anthropic` and `openai` client dependencies so Phase 1.5/2 can call APIs directly when available.
+- Let `sync_skill.sh` include `.env` by default (no secrets when `SUBSCRIPTION_MODE=true`) while retaining cache exclusions.
+- Updated prompt templates to interpolate `RESUME_HEADER` instead of a fixed company string.
+
+### Tests / Benchmarks
+- Not run (config and prompt default refresh only).
+
+---
+
 *End of Build History*
 
 ## Milestone 9 — Review Fixes (2026-02-17)

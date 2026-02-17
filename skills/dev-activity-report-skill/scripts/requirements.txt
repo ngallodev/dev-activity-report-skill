@@ -3,3 +3,5 @@ python-dotenv>=1.0.0   # .env file parsing; graceful fallback exists if absent
 
 # Optional — improves performance when installed
 pygit2>=1.14.0         # fast git introspection via libgit2 (no subprocess); falls back to git CLI
+anthropic>=0.79.0      # Phase 1.5/2 API calls; falls back to claude CLI if absent
+openai>=2.0.0          # Phase 1.5 API calls via openai-compatible endpoint; falls back to claude CLI if absent
