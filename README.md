@@ -217,6 +217,62 @@ That's it. Claude reads your `.env`, delegates data gathering to Haiku, synthesi
 
 The runner passes `REPORT_SANDBOX` directly to `codex exec --sandbox`. Default is `workspace-write`. The Codex workspace is the current working directory where the run is invoked; paths outside that workspace may be blocked under `workspace-write`. If you choose a more permissive sandbox (for example `none`, if your Codex build supports it), you can scan and write outside the workspace. When any phase uses a non-Claude model and paths fall outside the workspace, the runner prints a warning to stderr.
 
+### Run as a standalone script (no Claude Code session required)
+
+Use `run_pipeline.py` to run the full pipeline directly without the `codex exec` overhead or needing an active Claude Code session:
+
+```bash
+# Background (default) — logs to ~/pipeline-run-<TS>.log
+python3 skills/dev-activity-report-skill/scripts/run_pipeline.py
+
+# Foreground — streams all phase output to terminal
+python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground
+```
+
+This script:
+- Runs `phase1_runner.py` as a subprocess (same logic, no overhead)
+- Calls `phase1_5_draft.py` for the Haiku draft; falls back to `claude --model haiku -p` if no `openai` SDK installed
+- Calls `claude --model sonnet -p` directly for Phase 2 (no `codex exec` wrapper)
+- Runs Phase 3 cache verification inline in Python
+- Appends timing and token usage to `references/benchmarks.jsonl`
+- Sends a desktop notification on completion
+
+**Requires**: `claude` CLI on `PATH` (authenticated). Does not require the `anthropic` or `openai` Python packages.
+
+#### Benchmark results (2026-02-17, 12 runs)
+
+All runs measured on this machine with `haiku` for Phases 1 and 1.5, `sonnet` for Phase 2:
+
+| Metric | Value |
+|---|---|
+| Phase 1 (data gather) | **0.69–0.87s** |
+| Phase 1.5 (Haiku draft via `claude -p`) | **7.3–9.0s** |
+| Phase 2 (Sonnet report via `claude -p`) | **27–34s** |
+| Phase 3 (cache verify, inline Python) | **<0.01s** |
+| **Total wall time** | **37–43s** |
+
+Token usage per run (Anthropic subscription; `cost_usd=0` in subscription mode):
+- Phase 1.5: ~5,000–27,000 cache_creation tokens + ~17,000–22,000 cache_read tokens, ~173–289 output tokens
+- Phase 2: ~5,700–24,000 cache_creation tokens + ~17,710 cache_read tokens, ~1,055–1,360 output tokens
+
+The first run after a long idle period creates new prompt cache entries (higher `cache_creation` count, no `cache_read`). Subsequent runs within the cache TTL show high `cache_read` and minimal `cache_creation`.
+
+#### Fingerprint ignore list
+
+The fingerprinter (`phase1_runner.py` and the Claude CLI version) uses `.dev-report-fingerprint-ignore` (at the skill root) to exclude volatile files from content-hash computation. Without this, every pipeline run would invalidate the cache because runtime artifacts (logs, Claude session todos, debug files) change on each run.
+
+Key excluded patterns:
+- `*.log`, `build.log`, `references/examples/token_economics.log` — runtime logs
+- `references/benchmarks.jsonl` — benchmark output
+- `todos/*`, `tasks/*`, `projects/*` — per-session Claude Code artifacts
+- `debug/*`, `*.txt` — Claude Code debug files
+- `ccusage-blocks.json`, `stats-cache.json` — billing/stats cache
+- `.credentials.json` — auth tokens (also security-sensitive)
+
+To add project-specific exclusions, edit `.dev-report-fingerprint-ignore` in the skill directory.
+
+---
+
 ### Consolidate Reports
 
 Use the consolidator to merge all `dev-activity-report-*.md` outputs and `codex-test-report-*.md` test reports into a single, de-duplicated document grouped by heading:

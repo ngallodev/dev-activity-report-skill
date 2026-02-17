@@ -1078,5 +1078,87 @@ All three scripts run in sequence without failure:
 
 ---
 
+## Milestone N+1 — Direct Pipeline Runner (run_pipeline.py)
+
+**Date**: 2026-02-16
+
+**What happened**: Added `scripts/run_pipeline.py` — a self-contained pipeline runner that executes all phases directly without going through `codex exec`. The existing `run_report.sh` wraps every phase in a `codex exec` subprocess, adding overhead and requiring the Codex CLI binary. The new script invokes each phase directly.
+
+**Key decisions made**:
+- Phase 1 and 1.5 are spawned as Python subprocesses (preserving their existing logic unchanged).
+- Phase 2 calls the Anthropic SDK directly (`anthropic.Anthropic().messages.create()`), with a fallback to OpenAI-compatible endpoints if the `anthropic` package isn't installed.
+- Model short names (`haiku`, `sonnet`, `opus`) are mapped to full Anthropic model IDs internally.
+- Phase 3 (cache verification) runs inline in Python — no subprocess needed.
+- Same `.env` config file used; same `PHASE*_MODEL`, `PHASE*_API_*`, `SUBSCRIPTION_MODE` env vars honored.
+- Background mode works by relaunching self with `--foreground` via `subprocess.Popen(..., start_new_session=True)` and logging to `pipeline-run-<TS>.log`.
+- Token logging delegates to `token_logger.append_usage()` after each API phase.
+- Few-shot examples from SKILL.md included in Phase 2 prompt for consistency with the Claude-driven flow.
+
+**Why not replace run_report.sh**: Both scripts are kept. `run_report.sh` is the codex-exec path used when Claude runs the skill; `run_pipeline.py` is the direct-execution path for scripted/CI/standalone invocations.
+
+**Files added**:
+- `skills/dev-activity-report-skill/scripts/run_pipeline.py` (executable)
+
+**Benchmark** (expected, not yet measured):
+- Eliminates 3× `codex exec` subprocess spawns (~1–3s each)
+- Phase 1 subprocess time unchanged (no cache hit: ~5–15s depending on repo count)
+- Phase 2 API latency: ~3–8s for Sonnet
+- Total wall time target: <30s foreground (vs. 45–90s via codex exec)
+
+---
+
+## Milestone N+2 — Fingerprint Ignore List + Benchmark Suite (2026-02-17)
+
+**What happened**: Diagnosed and fixed a cache invalidation bug discovered during live cold/warm benchmark testing. Added a `.dev-report-fingerprint-ignore` file and supporting logic in `phase1_runner.py`.
+
+### Root Cause Analysis
+
+During benchmark testing, `cache_hit=False` persisted on every run despite no code changes. Root causes found (in order of discovery):
+
+1. **`token_economics.log` is git-tracked** (known pitfall, noted in MEMORY.md). It gets appended to by `token_logger.py` on every run, changing its content hash and invalidating the global fingerprint.
+2. **`~/.claude/debug/*.txt` files** — Claude Code writes a new debug `.txt` file for each session. These matched `allowed_exts` (`.txt`) and were included in `claude_fp`.
+3. **`~/.claude/todos/<uuid>/*.json` files** — every `claude -p` invocation creates a new session UUID directory with todo JSON files. These are at `depth=2` within `max_depth=2` scan, extension `.json` is in `allowed_exts`.
+4. **`~/.claude/plugins/install-counts-cache.json`, `settings.json`, `stats-cache.json`** — update on each `claude` invocation.
+5. **`fnmatch` not recursive** — `todos/*` did not match `todos/uuid/1.json`. Required a custom prefix-match extension in `_matches_ignore`.
+
+### Fix
+
+- Added `.dev-report-fingerprint-ignore` file (per-skill ignore list, gitignored-style patterns, `#` comments)
+- Added `load_fp_ignore_patterns()`, `_matches_ignore()` to `phase1_runner.py`
+- Extended `_matches_ignore` with recursive prefix matching: `dir/*` matches anything under `dir/` at any depth
+- Applied ignore filter in both `hash_git_repo` (for project dirs) and `hash_non_git_dir` (for claude_home, codex_home)
+- Documented that the ignore list applies to the Claude CLI version too (SKILL.md note)
+
+**Verification**: Two back-to-back `phase1_runner.py` runs show identical fingerprints and `cache_hit=True` on the second run.
+
+### Benchmark Results (run_pipeline.py, 12 runs, 2026-02-17)
+
+Environment: haiku for P1+P1.5, sonnet for P2, subscription mode (cost_usd=0), 12 projects under APPS_DIR.
+
+| Phase | Time range | Notes |
+|---|---|---|
+| Phase 1 (data gather) | 0.69–0.87s | `phase1_runner.py` subprocess |
+| Phase 1.5 (Haiku via `claude -p`) | 7.3–9.0s | No `openai` SDK; uses `claude -p` |
+| Phase 2 (Sonnet via `claude -p`) | 27.1–33.5s | Full polished report |
+| Phase 3 (cache verify, inline) | <0.01s | Reads `.phase1-cache.json` |
+| **Total** | **37–43s** | vs. 45–90s estimated for `codex exec` path |
+
+Token breakdown (Anthropic subscription; all `cost_usd=0`):
+- P1.5: ~5k–27k `cache_creation` + ~17k–22k `cache_read` + ~173–289 `output`
+- P2: ~5.7k–24k `cache_creation` + ~17.7k `cache_read` + ~1,055–1,360 `output`
+- High `cache_creation` on first run (cold prompt cache); high `cache_read` on subsequent runs within TTL
+
+Benchmark records stored in `references/benchmarks.jsonl`.
+
+### Files added/modified
+
+- `skills/dev-activity-report-skill/.dev-report-fingerprint-ignore` — new ignore list
+- `skills/dev-activity-report-skill/scripts/phase1_runner.py` — `load_fp_ignore_patterns()`, `_matches_ignore()`, applied in `hash_git_repo` + `hash_non_git_dir`
+- `skills/dev-activity-report-skill/scripts/run_pipeline.py` — complete rewrite to use `claude -p` instead of SDK, add timing/benchmark recording
+- `skills/dev-activity-report-skill/references/benchmarks.jsonl` — live benchmark log (gitignored)
+- `README.md` — added `run_pipeline.py` section with benchmark table and ignore list docs
+
+---
+
 *End of Build History*
 
