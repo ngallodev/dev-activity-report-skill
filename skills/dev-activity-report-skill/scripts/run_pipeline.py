@@ -78,6 +78,7 @@ def claude_call(
     claude_bin: str,
     system_prompt: str | None = None,
     max_tokens: int = 2048,
+    timeout: int = 300,
 ) -> tuple[str, dict[str, int]]:
     """
     Call `claude -p <prompt> --model <model> --output-format json`.
@@ -93,7 +94,6 @@ def claude_call(
         "--output-format", "json",
         "--max-budget-usd", "1.00",
         "--no-session-persistence",
-        "--tools", "",        # no tools needed — pure text generation
         "-p", prompt,
     ]
     if system_prompt:
@@ -104,7 +104,7 @@ def claude_call(
         capture_output=True,
         text=True,
         env=env,
-        timeout=120,
+        timeout=timeout,
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -195,7 +195,8 @@ def call_phase2(
         f"Draft bullets:\n{draft_text}"
     )
     model = env.get("PHASE2_MODEL", "sonnet")
-    return claude_call(prompt, model, claude_bin, system_prompt=PHASE2_SYSTEM)
+    timeout = int(env.get("PHASE2_TIMEOUT", 300))
+    return claude_call(prompt, model, claude_bin, system_prompt=PHASE2_SYSTEM, timeout=timeout)
 
 
 # ── Phase 1.5 via claude CLI (when no SDK) ────────────────────────────────────
@@ -221,7 +222,8 @@ def call_phase15_claude(
     prompt = PHASE15_PROMPT_TMPL.format(
         summary_json=json.dumps(summary, separators=(",", ":"))
     )
-    return claude_call(prompt, model, claude_bin)
+    timeout = int(env.get("PHASE15_TIMEOUT", 180))
+    return claude_call(prompt, model, claude_bin, timeout=timeout)
 
 
 # ── Cache verification (Phase 3) ──────────────────────────────────────────────
@@ -270,12 +272,13 @@ def record_benchmark(
     skill_dir: Path,
 ) -> None:
     """Append a benchmark record to references/benchmarks.jsonl."""
+    phase_keys = ("phase1", "phase15", "phase2", "phase3")
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "run": run_label,
         "cache_hit": cache_hit,
-        "timings_sec": {k: round(v, 3) for k, v in timings.items()},
-        "total_sec": round(sum(timings.values()), 3),
+        "timings_sec": {k: round(v, 3) for k, v in timings.items() if k != "total"},
+        "total_sec": round(sum(v for k, v in timings.items() if k in phase_keys), 3),
         "phase15_tokens": usage15,
         "phase2_tokens": usage2,
         "report": str(report_path),
@@ -365,8 +368,14 @@ def run(foreground: bool = True) -> int:
     if not phase1_json_str:
         cache_file = SKILL_DIR / ".phase1-cache.json"
         if cache_file.exists():
-            phase1_json_str = cache_file.read_text()
-            print("  (read phase1 output from cache file)", flush=True)
+            raw_cache = json.loads(cache_file.read_text())
+            # .phase1-cache.json uses 'fingerprint' key; normalize to pipeline shape
+            if "fp" not in raw_cache and "fingerprint" in raw_cache:
+                raw_cache["fp"] = raw_cache["fingerprint"]
+            if "cache_hit" not in raw_cache:
+                raw_cache["cache_hit"] = True  # reading from cache file implies a warm run
+            phase1_json_str = json.dumps(raw_cache)
+            print("  (read phase1 output from cache file — warm run)", flush=True)
         else:
             print("Phase 1 produced no JSON output and no cache file found.", file=sys.stderr)
             return 1

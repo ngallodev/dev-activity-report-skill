@@ -24,7 +24,6 @@ benchmarks.jsonl
 # ~/.claude/debug/ grows a new .txt file every session
 debug/*
 debug/*.txt
-*.txt
 
 # ── Claude usage/billing data that updates continuously ──────────────────────
 ccusage-blocks.json

@@ -35,7 +35,7 @@ def load_env() -> dict[str, str]:
 
 
 def expand(val: str) -> Path:
-    return Path(os.path.abspath(os.path.expanduser(val)))
+    return Path(os.path.abspath(os.path.expandvars(os.path.expanduser(val))))
 
 
 def collect_cache_files(apps_dir: Path) -> list[Path]:

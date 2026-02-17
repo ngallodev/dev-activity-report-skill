@@ -1160,5 +1160,43 @@ Benchmark records stored in `references/benchmarks.jsonl`.
 
 ---
 
+## Milestone 8 — PR Review Fixes (2026-02-16)
+
+**What happened**: Addressed five issues identified in PR code review (`planning-docs/current-pr-review-items.md`).
+
+### Issues fixed
+
+**High — Inflated benchmark `total_sec`** (`run_pipeline.py:275–281`)
+- `record_benchmark` was calling `sum(timings.values())` on a dict that already included the `"total"` key written at line 464 before the call, causing `total_sec` to be `actual_total + total` (roughly doubled).
+- Fix: `timings_sec` now excludes the `"total"` key; `total_sec` sums only the four phase keys (`phase1`, `phase15`, `phase2`, `phase3`).
+
+**High — `--tools ""` passed to claude CLI** (`run_pipeline.py:96`)
+- `--tools ""` was passed to every `claude -p` call. An empty string is not a valid tool name and could cause the CLI to reject the invocation.
+- Fix: Removed the `--tools` flag entirely. Pure text-generation calls need no tool specification.
+
+**Medium — Hard-coded `timeout=120`** (`run_pipeline.py:107`)
+- Phase 2 (Sonnet) routinely runs 27–34s and could exceed 120s on large repos or slow networks. The timeout was fixed and not overridable.
+- Fix: `claude_call()` now accepts a `timeout` parameter (default 300s). `call_phase2()` reads `PHASE2_TIMEOUT` from `.env` (default 300); `call_phase15_claude()` reads `PHASE15_TIMEOUT` (default 180).
+
+**Medium — Cache fallback used wrong key names** (`run_pipeline.py:368–391`)
+- When Phase 1 produced no JSON stdout, the pipeline read `.phase1-cache.json` directly but then tried `.get("fp")` and `.get("cache_hit")`. The cache file uses `"fingerprint"` (not `"fp"`) and has no `"cache_hit"` key, so logs showed `fp=n/a` and warm runs were labelled cold.
+- Fix: After reading the cache file, normalize the dict: copy `fingerprint` → `fp` if missing, and set `cache_hit=True` (reading from cache file always implies a warm run).
+
+**Medium — `*.txt` in fingerprint ignore too broad** (`.dev-report-fingerprint-ignore:27`)
+- A bare `*.txt` excluded every `.txt` file in every scanned repo, risking false cache hits when real source `.txt` files change.
+- Fix: Removed `*.txt`. The specific `debug/*` and `debug/*.txt` patterns remain, which cover the only known volatile `.txt` location (`~/.claude/debug/`).
+
+**Low — `clear_cache.py` `expand()` didn't handle `$HOME`** (`clear_cache.py:38`)
+- `os.path.expanduser` handles `~` but not `$HOME`. If `APPS_DIR` is set using `$HOME/apps`, cache clearing would silently use the literal string.
+- Fix: Added `os.path.expandvars()` call before `expanduser`.
+
+### Files modified
+
+- `skills/dev-activity-report-skill/scripts/run_pipeline.py` — benchmark fix, `--tools ""` removal, configurable timeout, cache key normalization
+- `skills/dev-activity-report-skill/scripts/clear_cache.py` — `expandvars` in `expand()`
+- `skills/dev-activity-report-skill/.dev-report-fingerprint-ignore` — removed global `*.txt`
+
+---
+
 *End of Build History*
 
