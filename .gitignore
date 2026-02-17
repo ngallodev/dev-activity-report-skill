@@ -10,3 +10,5 @@ codex-testing-output/
 *.log
 __pycache__/
 *.pyc
+pipeline-run-*.log
+references/benchmarks.jsonl

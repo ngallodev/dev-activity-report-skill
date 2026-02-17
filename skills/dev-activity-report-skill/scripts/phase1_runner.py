@@ -28,6 +28,41 @@ except ImportError:  # pragma: no cover
 SKILL_DIR = Path(__file__).resolve().parent.parent
 CACHE_FILE = SKILL_DIR / ".phase1-cache.json"
 INSIGHTS_LOG = SKILL_DIR / "references" / "examples" / "insights" / "insights-log.md"
+FP_IGNORE_FILE = SKILL_DIR / ".dev-report-fingerprint-ignore"
+
+
+def load_fp_ignore_patterns() -> list[str]:
+    """Load glob patterns from .dev-report-fingerprint-ignore (one per line, # comments ok)."""
+    if not FP_IGNORE_FILE.exists():
+        return []
+    patterns = []
+    for line in FP_IGNORE_FILE.read_text().splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            patterns.append(stripped)
+    return patterns
+
+
+def _matches_ignore(rel_path: str, patterns: list[str]) -> bool:
+    """Return True if rel_path matches any ignore glob pattern.
+
+    Supports:
+    - Standard fnmatch against the full relative path
+    - fnmatch against the filename alone
+    - Directory prefix: pattern ending with '/*' is treated as a prefix match
+      so 'todos/*' matches 'todos/uuid/1.json' at any depth.
+    """
+    rel_posix = rel_path.replace(os.sep, "/")
+    name = Path(rel_path).name
+    for pat in patterns:
+        if fnmatch.fnmatch(rel_posix, pat) or fnmatch.fnmatch(name, pat):
+            return True
+        # Treat "dir/*" as a recursive prefix: anything under "dir/"
+        if pat.endswith("/*"):
+            prefix = pat[:-2]  # strip trailing /*
+            if rel_posix == prefix or rel_posix.startswith(prefix + "/"):
+                return True
+    return False
 
 DEFAULTS: dict[str, str] = {
     "APPS_DIR": "/lump/apps",
@@ -190,6 +225,9 @@ def git_head(path: Path) -> str:
 
 def hash_git_repo(path: Path) -> str:
     files = git_tracked_files(path)
+    ignore = load_fp_ignore_patterns()
+    if ignore:
+        files = [f for f in files if not _matches_ignore(f, ignore)]
     return hash_paths(path, files)
 
 
@@ -204,11 +242,14 @@ def hash_non_git_dir(path: Path, allowed_exts: set[str], max_depth: int = 4) -> 
             dirs[:] = []
             continue
         dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith(".")]
+        ignore = load_fp_ignore_patterns()
         for name in files:
             suffix = Path(name).suffix.lower()
             if suffix not in allowed_exts:
                 continue
             rel_path = os.path.relpath(Path(root) / name, path)
+            if ignore and _matches_ignore(rel_path, ignore):
+                continue
             selected.append(rel_path)
     return hash_paths(path, selected)
 

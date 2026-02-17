@@ -164,6 +164,24 @@ Delegate to `/codex-job` with the stale projects list only. Fingerprints are con
 
 ---
 
+## Fingerprint Ignore List
+
+Before computing any content hash (git repos, non-git dirs, `claude_home`, `codex_home`), check `.dev-report-fingerprint-ignore` (at `SKILL_DIR`) for glob patterns to exclude. This prevents volatile runtime files from invalidating the cache on every run.
+
+The ignore file uses fnmatch patterns (one per line, `#` comments). Patterns ending with `/*` are treated as recursive prefix matches (match any path under that directory at any depth).
+
+Key excluded categories:
+- `*.log`, `build.log`, `references/examples/token_economics.log`
+- `references/benchmarks.jsonl`
+- `todos/*`, `tasks/*`, `projects/*` — per-session Claude Code artifacts
+- `debug/*`, `*.txt` — Claude Code debug files
+- `ccusage-blocks.json`, `stats-cache.json`, `settings.json`
+- `.credentials.json` — auth tokens
+
+Apply this filter in Phase 1 whenever calling `scripts/phase1_runner.py`. If running Phase 1 inline (without the script), load the ignore file manually and apply the same filter before hashing.
+
+---
+
 ## Efficiency Notes
 
 - Compact keys only (see PAYLOAD_REFERENCE); avoid expanding names in prompts.
