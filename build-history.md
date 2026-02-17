@@ -989,5 +989,94 @@ python3 scripts/clear_cache.py --confirm # actually delete
 
 ---
 
+## Milestone 34 — .gitignore Pattern Fixes (Post-Code Review)
+
+*Session: 2026-02-16 | Author: Claude Code*
+
+**What happened**: Addressed issues identified in Milestone 29 code review regarding missing .gitignore patterns for generated files.
+
+**Issues identified**:
+1. Log files (`*.log`) were not ignored, causing build logs and token economics logs to appear as untracked
+2. Python bytecode cache directories (`__pycache__/`) were not ignored
+3. Python compiled files (`*.pyc`) were not ignored
+
+**Untracked files before fix**:
+- `skills/dev-activity-report-skill/build.log`
+- `skills/dev-activity-report-skill/references/examples/build.log`
+- `skills/dev-activity-report-skill/scripts/__pycache__/`
+- `skills/dev-activity-report-skill/token_economics.log`
+
+**Changes made**:
+Added three new patterns to `.gitignore`:
+```
+*.log
+__pycache__/
+*.pyc
+```
+
+**Result**: All generated files now properly ignored. The `token_economics.log` file still shows as modified (not untracked) because it was already tracked by git before the ignore pattern was added.
+
+**Files modified**:
+- `.gitignore`
+
+---
+
+## Milestone 35 — Robust Dev Workflow: Cache Validation, Pre-Commit Hook, Skill Sync
+
+*Session: 2026-02-17 | Author: ngallodev + Claude Sonnet 4.5*
+
+**What happened**: Added three infrastructure pieces to harden the development workflow: an automated cache validation script, a git pre-commit safety hook, and a skill sync/verify script.
+
+### 1. Cache validation script (`scripts/testing/validate_cache.py`)
+
+Runs the full cold→warm validation loop automatically:
+1. Clears all caches via `clear_cache.py --confirm`
+2. Runs `phase1_runner.py` cold — asserts `cache_hit=False`, `fp` non-empty, cache file written
+3. Runs `phase1_runner.py` warm — asserts `cache_hit=True`, `fp` matches cold, **mtime unchanged** (no self-invalidating rewrite)
+4. Reads cache file and confirms stored fingerprint equals reported fp
+
+The mtime stability assertion catches the self-invalidating cache bug documented in Milestone 9 — if `write_cache()` runs on a warm hit (it must not), the mtime will change and the test fails.
+
+**Benchmark** (2026-02-17):
+- Cold run: 0.73–0.98s
+- Warm run: 0.57–0.84s
+- All 4 assertions pass; fingerprint stable across runs
+
+### 2. Git pre-commit hook (`.git/hooks/pre-commit`)
+
+Blocks commits of gitignored cache files before they can pollute the repo:
+
+- Reads `.gitignore` and uses `git check-ignore` to test each staged file
+- Also maintains a hardcoded list of known cache patterns as a belt-and-suspenders check:
+  `.phase1-cache.json`, `.phase1-cache.tmp`, `.dev-report-cache.md`, `.dev-report-cache.tmp`
+- Prints which pattern triggered the block and how to unstage
+- Does not block commits where no staged file matches a cache pattern
+- Tested: force-staged `.phase1-cache.json` → hook exited 1 with correct error
+
+### 3. Skill sync script (`scripts/sync_skill.sh`)
+
+Syncs the repo skill directory to the installed location at `~/.claude/skills/dev-activity-report-skill/` and verifies identity:
+
+- Uses `rsync -av --delete` with the same exclusions as `.gitignore` (`.env`, caches, logs, bytecode)
+- Runs `diff -rq` after sync to confirm copies are identical
+- Supports `--check-only` (diff without sync) and `--dry-run` (rsync preview without write)
+- Honors `CLAUDE_SKILLS_DIR` env var override for non-standard install locations
+
+**Verified** (2026-02-17): sync completed in <1s (warm), `diff` confirmed identical copies.
+
+### Pipeline verified end-to-end
+
+All three scripts run in sequence without failure:
+1. `validate_cache.py` → PASSED (cold 0.73s, warm 0.84s)
+2. `sync_skill.sh` → SUCCESS (copies identical)
+3. Hook test → exited 1 (blocked staged cache file correctly)
+
+**Files added**:
+- `skills/dev-activity-report-skill/scripts/testing/validate_cache.py`
+- `skills/dev-activity-report-skill/scripts/sync_skill.sh`
+- `.git/hooks/pre-commit` (not tracked by git — installed to `.git/hooks/`)
+
+---
+
 *End of Build History*
 
