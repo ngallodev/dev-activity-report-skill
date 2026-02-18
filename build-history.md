@@ -1685,8 +1685,7 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
   - `python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground`
   - **Succeeded**; total **48.28s** (`p1=0.39s`, `p1.5=9.70s`, `p2=38.09s`)
   - Outputs:
-    - `/home/nate/dev-activity-report-20260218T080136Z.json`
-    - `/home/nate/dev-activity-report-20260218T080136Z.md`
+
 
 ---
 
