@@ -18,8 +18,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -85,6 +87,13 @@ def resolve_since(env: dict[str, str], cli_since: str | None = None) -> str | No
         if value and value.strip():
             return value.strip()
     return None
+
+
+def env_bool(env: dict[str, str], key: str, default: bool = False) -> bool:
+    raw = env.get(key, "")
+    if not raw:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def find_claude_bin() -> str | None:
@@ -390,6 +399,72 @@ Rules:
 """
 
 
+def extract_insights_quotes(env: dict[str, str]) -> tuple[str, str]:
+    """Return (insights_block, source_path) for optional Phase 2 prompt context."""
+    if not env_bool(env, "INCLUDE_CLAUDE_INSIGHTS_QUOTES", default=False):
+        return "", ""
+
+    path = Path(expand(env.get("INSIGHTS_REPORT_PATH", "~/.claude/usage-data/report.html")))
+    if not path.exists():
+        return "", str(path)
+
+    try:
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return "", str(path)
+
+    # Lightweight HTML-to-text extraction without extra dependencies.
+    raw = re.sub(r"(?is)<(script|style)[^>]*>.*?</\\1>", " ", raw)
+    raw = re.sub(r"(?i)<br\\s*/?>", "\n", raw)
+    raw = re.sub(r"(?i)</(p|li|h1|h2|h3|h4|h5|h6|div|section|article)>", "\n", raw)
+    raw = re.sub(r"(?s)<[^>]+>", " ", raw)
+    text = html.unescape(raw)
+
+    lines: list[str] = []
+    for line in text.splitlines():
+        cleaned = " ".join(line.split()).strip()
+        if cleaned:
+            lines.append(cleaned)
+
+    if not lines:
+        return "", str(path)
+
+    keywords = (
+        "usage", "pattern", "wins", "friction", "outcomes", "tool",
+        "session", "workflow", "insight", "delegate", "automation", "report"
+    )
+    candidates: list[str] = []
+    for line in lines:
+        lower = line.lower()
+        is_candidate = (
+            line.startswith("-")
+            or line.startswith("•")
+            or any(k in lower for k in keywords)
+            or len(line.split()) >= 8
+        )
+        if is_candidate and line not in candidates:
+            candidates.append(line)
+
+    max_quotes = int(env.get("CLAUDE_INSIGHTS_QUOTES_MAX", 8) or 8)
+    max_chars = int(env.get("CLAUDE_INSIGHTS_QUOTES_MAX_CHARS", 2000) or 2000)
+    selected: list[str] = []
+    total = 0
+    for line in candidates:
+        quoted = f'"{line}"'
+        if total + len(quoted) > max_chars and selected:
+            break
+        selected.append(quoted)
+        total += len(quoted)
+        if len(selected) >= max_quotes:
+            break
+
+    if not selected:
+        return "", str(path)
+
+    block = "\n".join(f"- {item}" for item in selected)
+    return block, str(path)
+
+
 def call_phase2(
     compact_json: str,
     draft_text: str,
@@ -398,11 +473,26 @@ def call_phase2(
 ) -> tuple[str, dict[str, int]]:
     resume_header = env.get("RESUME_HEADER", "Your Name, Jan 2025 – Present")
     rules = PHASE2_RULES.format(resume_header=resume_header)
-    prefix = (env.get("PHASE2_PROMPT_PREFIX") or "").strip()
-    if prefix:
-        prefix = f"{prefix}\n\n"
+    extra_rules = (env.get("PHASE2_RULES_EXTRA") or env.get("PHASE2_PROMPT_PREFIX") or "").strip()
+    extra_rules_block = ""
+    if extra_rules:
+        extra_rules_block = (
+            "Additional user rules from .env (apply without changing the JSON schema):\n"
+            f"{extra_rules}\n\n"
+        )
+    insights_block, insights_source = extract_insights_quotes(env)
+    insights_prompt_block = ""
+    if insights_block:
+        insights_prompt_block = (
+            f"Claude insights report excerpts (source: {insights_source}):\n"
+            f"{insights_block}\n\n"
+            "If you use these excerpts, include short attribution text in the relevant bullet/sentence "
+            '(e.g., "(source: Claude insights report)").\n\n'
+        )
     prompt = (
-        f"{prefix}{rules}\n\n"
+        f"{rules}\n\n"
+        f"{extra_rules_block}"
+        f"{insights_prompt_block}"
         f"Summary JSON (compact):\n{compact_json}\n\n"
         f"Draft bullets:\n{draft_text}"
     )
@@ -416,9 +506,6 @@ PHASE15_PROMPT_TMPL = """\
 You are a terse assistant drafting a dev activity report.
 Input JSON uses abbreviated keys. Write a bullet draft only; no commentary.
 
-Summary:
-{summary_json}
-
 Output:
 - 5–8 bullets (concise)
 - 2 sentence overview
@@ -431,13 +518,19 @@ def call_phase15_claude(
     claude_bin: str,
 ) -> tuple[str, dict[str, int]]:
     model = env.get("PHASE15_MODEL", "haiku")
-    prefix = (env.get("PHASE15_PROMPT_PREFIX") or "").strip()
-    if prefix:
-        prefix = f"{prefix}\n\n"
-    prompt = PHASE15_PROMPT_TMPL.format(
-        summary_json=json.dumps(summary, separators=(",", ":"))
+    prompt = PHASE15_PROMPT_TMPL
+    extra_rules = (env.get("PHASE15_RULES_EXTRA") or env.get("PHASE15_PROMPT_PREFIX") or "").strip()
+    if extra_rules:
+        prompt = (
+            f"{prompt}\n\n"
+            "Additional user rules from .env (must not alter required output format):\n"
+            f"{extra_rules}"
+        )
+    prompt = (
+        f"{prompt}\n\n"
+        "Summary JSON (read-only context; do not rewrite it):\n"
+        f"{json.dumps(summary, separators=(',', ':'))}"
     )
-    prompt = f"{prefix}{prompt}"
     timeout = int(env.get("PHASE15_TIMEOUT", 180))
     return claude_call(prompt, model, claude_bin, timeout=timeout)
 

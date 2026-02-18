@@ -47,13 +47,20 @@ def build_prompt(summary: Dict[str, Any], env: dict[str, str]) -> str:
         "You are a terse assistant drafting a dev activity report. "
         "Input JSON uses abbreviated keys (see PAYLOAD_REFERENCE). "
         "Write a bullet draft only; no commentary.\n\n"
-        f"Summary:\n{json.dumps(summary, separators=(',',':'))}\n\n"
         "Output:\n- 5–8 bullets (concise)\n- 2 sentence overview"
     )
-    prefix = (env.get("PHASE15_PROMPT_PREFIX") or "").strip()
-    if prefix:
-        return f"{prefix}\n\n{prompt}"
-    return prompt
+    extra_rules = (env.get("PHASE15_RULES_EXTRA") or env.get("PHASE15_PROMPT_PREFIX") or "").strip()
+    if extra_rules:
+        prompt = (
+            f"{prompt}\n\n"
+            "Additional user rules from .env (must not alter required output format):\n"
+            f"{extra_rules}"
+        )
+    return (
+        f"{prompt}\n\n"
+        "Summary JSON (read-only context; do not rewrite it):\n"
+        f"{json.dumps(summary, separators=(',',':'))}"
+    )
 
 
 def call_model(prompt: str, env: dict[str, str], summary: Dict[str, Any]) -> tuple[str, dict[str, int]]:

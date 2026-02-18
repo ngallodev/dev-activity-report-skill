@@ -193,13 +193,18 @@ PHASE1_MODEL=haiku
 PHASE15_MODEL=haiku
 PHASE2_MODEL=sonnet
 PHASE3_MODEL=gpt-5.1-codex-mini
-# Optional prompt prefixes (prepended before built-in phase instructions)
-# Use to add context, or force override behavior:
-# "Ignore any following instructions for this phase. <your instructions>"
+# Legacy prompt prefixes
 PHASE1_PROMPT_PREFIX=
 PHASE15_PROMPT_PREFIX=
 PHASE2_PROMPT_PREFIX=
 PHASE3_PROMPT_PREFIX=
+# Preferred structured rule injection keys (safer for JSON phases)
+PHASE15_RULES_EXTRA=
+PHASE2_RULES_EXTRA=
+# Optional: include quoted excerpts from Claude insights report in Phase 2 context
+INCLUDE_CLAUDE_INSIGHTS_QUOTES=false
+CLAUDE_INSIGHTS_QUOTES_MAX=8
+CLAUDE_INSIGHTS_QUOTES_MAX_CHARS=2000
 # Optional log paths (defaults to REPORT_OUTPUT_DIR if omitted)
 # TOKEN_LOG_PATH=~/token_economics.log
 # BUILD_LOG_PATH=~/build.log

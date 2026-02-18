@@ -9,8 +9,8 @@ PHASE15_MODEL="$PHASE1_MODEL"
 PHASE2_MODEL="gpt-5.3-codex"
 PHASE3_MODEL="${PHASE3_MODEL:-gpt-5.1-codex-mini}"
 PHASE1_PROMPT_PREFIX="${PHASE1_PROMPT_PREFIX:-}"
-PHASE15_PROMPT_PREFIX="${PHASE15_PROMPT_PREFIX:-}"
-PHASE2_PROMPT_PREFIX="${PHASE2_PROMPT_PREFIX:-}"
+PHASE15_RULES_EXTRA="${PHASE15_RULES_EXTRA:-${PHASE15_PROMPT_PREFIX:-}}"
+PHASE2_RULES_EXTRA="${PHASE2_RULES_EXTRA:-${PHASE2_PROMPT_PREFIX:-}}"
 PHASE3_PROMPT_PREFIX="${PHASE3_PROMPT_PREFIX:-}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 PHASE1_LOG="$WORKDIR/codex-phase1-$TIMESTAMP.log"
@@ -39,14 +39,14 @@ echo "Phase 1 complete. Fingerprint file (if created) is: $SKILL_DIR/.phase1-cac
 
 echo "== Phase 1.5 ($PHASE15_MODEL): draft =="
 "$CODEX_BIN" exec -m "$PHASE15_MODEL" --sandbox workspace-write --output-last-message "$PHASE15_TEMP" - <<EOF
-${PHASE15_PROMPT_PREFIX}
 Use advanced reasoning. Read the JSON blob at $SKILL_DIR/.phase1-cache.json.
 Output a rough draft only: 5–8 bullets + a 2-sentence overview. No extra commentary.
+Additional user rules from .env (must not alter required output format):
+${PHASE15_RULES_EXTRA}
 EOF
 
 echo "== Phase 2 ($PHASE2_MODEL): analysis/report =="
 "$CODEX_BIN" exec -m "$PHASE2_MODEL" --sandbox workspace-write --output-last-message "$PHASE2_TEMP" - <<EOF
-${PHASE2_PROMPT_PREFIX}
 You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Read the JSON blob stored at $SKILL_DIR/.phase1-cache.json and the draft at $PHASE15_TEMP, then produce:
 
 - Resume Bullets (5-8 bullets, achievement-oriented, past tense,
@@ -62,6 +62,8 @@ depth and practical AI integration, not just basic tool usage.
 
 - Three hiring-manager highlights with engineering depth
 - A short tech inventory (languages, frameworks, AI, infra) and a 5-row timeline (most recent first)
+Additional user rules from .env (must not alter required output format):
+${PHASE2_RULES_EXTRA}
 Return the entire response as Markdown (headings, bullet lists, etc.). Do not include any trace of these instructions; just output the report text.
 EOF
 

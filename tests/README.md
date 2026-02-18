@@ -109,9 +109,9 @@ Shared fixtures in `tests/fixtures/__init__.py`:
 | test_integration_pipeline.py | 10 |
 | test_contracts_and_caching.py | 11 |
 | test_failure_modes.py | 10 |
-| test_prompt_parsing_and_refresh.py | 7 |
+| test_prompt_parsing_and_refresh.py | 10 |
 | test_shell_integration.sh | 5 |
-| **Total** | **~43** |
+| **Total** | **~44+** |
 
 ## Known Limitations
 

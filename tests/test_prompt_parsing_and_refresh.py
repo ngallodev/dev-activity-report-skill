@@ -38,6 +38,60 @@ class TestPhase2JsonParsing:
         with pytest.raises(json.JSONDecodeError):
             parse_llm_json_output('[{"not":"an object"}]')
 
+    def test_phase15_prompt_injects_summary_after_custom_rules(self):
+        from phase1_5_draft import build_prompt
+
+        env = {"PHASE15_RULES_EXTRA": "Prefer impact-first bullets."}
+        prompt = build_prompt({"p": [{"n": "demo"}]}, env)
+        assert "Additional user rules from .env" in prompt
+        assert "Summary JSON (read-only context; do not rewrite it):" in prompt
+        assert prompt.rfind("Summary JSON (read-only context; do not rewrite it):") > prompt.rfind(
+            "Additional user rules from .env"
+        )
+
+    def test_phase2_uses_rules_extra_without_schema_loss(self, monkeypatch):
+        import run_pipeline
+
+        captured = {}
+
+        def fake_claude_call(prompt, model, claude_bin, system_prompt=None, timeout=300):
+            captured["prompt"] = prompt
+            return "{}", {"prompt_tokens": 1, "completion_tokens": 1}
+
+        monkeypatch.setattr(run_pipeline, "claude_call", fake_claude_call)
+        monkeypatch.setattr(run_pipeline, "extract_insights_quotes", lambda env: ("", ""))
+
+        env = {
+            "RESUME_HEADER": "Name, Jan 2025 - Present",
+            "PHASE2_MODEL": "sonnet",
+            "PHASE2_RULES_EXTRA": "Use exactly 7 resume bullets.",
+        }
+        run_pipeline.call_phase2("{}", "- draft", env, "/usr/bin/claude")
+        prompt = captured["prompt"]
+        assert "Use exactly 7 resume bullets." in prompt
+        assert '"sections"' in prompt
+        assert "Summary JSON (compact):" in prompt
+        assert "Draft bullets:" in prompt
+
+    def test_extract_insights_quotes_opt_in(self, tmp_path):
+        import run_pipeline
+
+        html_file = tmp_path / "report.html"
+        html_file.write_text(
+            "<html><body><h2>Wins</h2><p>Delivered two complex automation upgrades.</p>"
+            "<p>Improved reliability and observability across workflows.</p></body></html>",
+            encoding="utf-8",
+        )
+        env = {
+            "INCLUDE_CLAUDE_INSIGHTS_QUOTES": "true",
+            "INSIGHTS_REPORT_PATH": str(html_file),
+            "CLAUDE_INSIGHTS_QUOTES_MAX": "3",
+            "CLAUDE_INSIGHTS_QUOTES_MAX_CHARS": "500",
+        }
+        block, source = run_pipeline.extract_insights_quotes(env)
+        assert "Delivered two complex automation upgrades." in block
+        assert source == str(html_file)
+
 
 class TestThoroughRefresh:
     """Refresh utility computes expected marker/cache actions."""

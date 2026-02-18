@@ -1718,4 +1718,47 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+## Build 23 — Structured Prompt Contracts + Optional Claude Insights Quotes (2026-02-18)
+
+**What happened**: Hardened Phase 1.5 and Phase 2 prompt composition so custom instructions are injected as bounded rule sets (instead of unconstrained prepends), while preserving fixed output contracts. Added an opt-in Phase 2 feature to include quoted excerpts from Claude `usage-data/report.html` with attribution guidance.
+
+### Prompt contract hardening
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/phase1_5_draft.py` | Phase 1.5 prompt now layers: stock prompt -> `PHASE15_RULES_EXTRA` (or legacy `PHASE15_PROMPT_PREFIX`) -> injected summary JSON context |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Phase 1.5 Claude CLI path uses same layering; summary JSON is injected after custom rules |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Phase 2 now uses `PHASE2_RULES_EXTRA` (or legacy `PHASE2_PROMPT_PREFIX`) as bounded rule injection, preserving fixed JSON schema instructions |
+| `skills/dev-activity-report-skill/scripts/run_report.sh` | Phase 1.5/2 runner prompts switched from raw prefix prepends to bounded rules injection fields |
+| `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh` | Test runner aligned to bounded rules injection for Phase 1.5/2 |
+
+### New optional Phase 2 insights feature
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Added `extract_insights_quotes()` with lightweight HTML text extraction and relevance filtering |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Added `INCLUDE_CLAUDE_INSIGHTS_QUOTES` gate and quote size/count caps (`CLAUDE_INSIGHTS_QUOTES_MAX`, `CLAUDE_INSIGHTS_QUOTES_MAX_CHARS`) |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Phase 2 prompt includes insights quote block + attribution instruction only when opt-in is enabled |
+
+### Configuration + docs
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/references/examples/.env.example` | Added `PHASE15_RULES_EXTRA`, `PHASE2_RULES_EXTRA`, and insights quote flags/caps |
+| `skills/dev-activity-report-skill/SKILL.md` | Documented bounded rule injection model and insights quote options |
+| `README.md` | Updated `.env` example to include rule-injection keys and insights quote options |
+| `tests/README.md` | Updated coverage documentation for expanded parser/refresh tests |
+
+### Test coverage additions
+
+| File | Coverage |
+|------|----------|
+| `tests/test_prompt_parsing_and_refresh.py` | Added tests for Phase 1.5 prompt layering, Phase 2 rule injection retention of schema framing, and insights quote extraction opt-in |
+
+### Benchmarks
+
+- `pytest tests/ -q`: **44 passed in 1.32s**
+
+---
+
 *End of Build History*

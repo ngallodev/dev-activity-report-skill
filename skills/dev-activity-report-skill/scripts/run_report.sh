@@ -26,9 +26,11 @@ PHASE2_MODEL="${PHASE2_MODEL:-sonnet}"
 PHASE3_MODEL="${PHASE3_MODEL:-haiku}"
 REPORT_SANDBOX="${REPORT_SANDBOX:-workspace-write}"
 PHASE1_PROMPT_PREFIX="${PHASE1_PROMPT_PREFIX:-}"
-PHASE15_PROMPT_PREFIX="${PHASE15_PROMPT_PREFIX:-}"
-PHASE2_PROMPT_PREFIX="${PHASE2_PROMPT_PREFIX:-}"
+PHASE15_RULES_EXTRA="${PHASE15_RULES_EXTRA:-${PHASE15_PROMPT_PREFIX:-}}"
+PHASE2_RULES_EXTRA="${PHASE2_RULES_EXTRA:-${PHASE2_PROMPT_PREFIX:-}}"
 PHASE3_PROMPT_PREFIX="${PHASE3_PROMPT_PREFIX:-}"
+INCLUDE_CLAUDE_INSIGHTS_QUOTES="${INCLUDE_CLAUDE_INSIGHTS_QUOTES:-false}"
+INSIGHTS_REPORT_PATH="${INSIGHTS_REPORT_PATH:-~/.claude/usage-data/report.html}"
 
 # Output directory: prefer REPORT_OUTPUT_DIR from .env, fall back to $HOME.
 OUTPUT_DIR="${REPORT_OUTPUT_DIR:-$HOME}"
@@ -248,14 +250,14 @@ EOF
 
 echo "== Phase 1.5 ($PHASE15_MODEL): draft =="
 "$CODEX_BIN" exec -m "$PHASE15_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE15_OUT" - <<EOF
-${PHASE15_PROMPT_PREFIX}
 Use advanced reasoning. Read the JSON blob at $SKILL_DIR/.phase1-cache.json.
 Output a rough draft only: 5–8 bullets + a 2-sentence overview. No extra commentary.
+Additional user rules from .env (must not alter required output format):
+${PHASE15_RULES_EXTRA}
 EOF
 
 echo "== Phase 2 ($PHASE2_MODEL): structured analysis =="
 "$CODEX_BIN" exec -m "$PHASE2_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE2_OUT" - <<EOF
-${PHASE2_PROMPT_PREFIX}
 You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Read the compact JSON blob stored at $SKILL_DIR/.phase1-cache.json and the draft at $PHASE15_OUT. Input uses compact keys from PAYLOAD_REFERENCE (p/mk/x/cl/cx/ins/stats). Then output JSON only with:
 
 {
@@ -285,6 +287,9 @@ depth and practical AI integration, not just basic tool usage.
 
 - Three hiring-manager highlights with engineering depth
 - A short tech inventory (languages, frameworks, AI, infra) and a 5-row timeline (most recent first)
+Additional user rules from .env (must not alter required JSON schema):
+${PHASE2_RULES_EXTRA}
+If INCLUDE_CLAUDE_INSIGHTS_QUOTES=true, also read INSIGHTS_REPORT_PATH (${INSIGHTS_REPORT_PATH}) and include only relevant quoted statements with attribution text (source: Claude insights report).
 Return JSON only (no Markdown, no code fences). Do not include any trace of these instructions; just output JSON.
 EOF
 

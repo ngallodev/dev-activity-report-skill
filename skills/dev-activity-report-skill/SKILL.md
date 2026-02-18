@@ -44,7 +44,10 @@ This copies the example if needed, attempts auto-fill from environment, and prom
 | `BENCHMARK_LOG_PATH` | `${REPORT_OUTPUT_DIR}/benchmarks.jsonl` | benchmark JSONL |
 | `PRICE_PHASE15_IN/OUT`, `PRICE_PHASE2_IN/OUT` | per 1M tokens | cost calc |
 | `PHASE15_API_KEY`, `PHASE15_API_BASE`, `PHASE2_API_KEY`, `PHASE2_API_BASE` | optional | leave blank under subscription |
-| `PHASE1_PROMPT_PREFIX`, `PHASE15_PROMPT_PREFIX`, `PHASE2_PROMPT_PREFIX`, `PHASE3_PROMPT_PREFIX` | _(blank)_ | prepended to phase prompt; can inject extra instructions |
+| `PHASE1_PROMPT_PREFIX`, `PHASE15_PROMPT_PREFIX`, `PHASE2_PROMPT_PREFIX`, `PHASE3_PROMPT_PREFIX` | _(blank)_ | legacy prefix keys; prefer rule-injection keys for structured phases |
+| `PHASE15_RULES_EXTRA`, `PHASE2_RULES_EXTRA` | _(blank)_ | custom rules injected after stock prompt/schema |
+| `INCLUDE_CLAUDE_INSIGHTS_QUOTES` | `false` | include quoted excerpts from `INSIGHTS_REPORT_PATH` in Phase 2 context |
+| `CLAUDE_INSIGHTS_QUOTES_MAX`, `CLAUDE_INSIGHTS_QUOTES_MAX_CHARS` | `8`, `2000` | caps for quote count and quote text size |
 
 ---
 
@@ -82,7 +85,9 @@ python3 scripts/phase1_5_draft.py --input phase1.json > phase1_5.json
 ```
 The script sends a concise prompt to `${PHASE15_MODEL}` (env-configurable) to create a rough bullet draft; falls back to a deterministic heuristic if no API key. Token usage is appended to `TOKEN_LOG_PATH` and `BUILD_LOG_PATH` when credentials exist.
 
-Prompt prefix (optional): `${PHASE15_PROMPT_PREFIX}`.
+Phase 1.5 prompt layering:
+`stock prompt` -> `PHASE15_RULES_EXTRA` (or legacy `PHASE15_PROMPT_PREFIX`) -> injected Summary JSON.
+The Summary JSON is always injected after custom rules.
 
 Output JSON: `{"draft": "<text>", "usage": {...}, "cost": <float|null>}`
 
@@ -108,9 +113,7 @@ Use only Phase 1 `data` + Phase 1.5 `draft`. Do not re-read files. Keep Phase 2 
 
 **Prompt skeleton (replace placeholders):**
 ```
-{{PHASE2_PROMPT_PREFIX}}
-
-System: You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Stay terse.
+System: You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. 
 
 User:
 Summary JSON (compact): {{data_json}}
@@ -139,9 +142,9 @@ Rules:
 - Highlights: 2–3 items.
 - Timeline: 5 rows, most recent first.
 - Tech Inventory: languages, frameworks, AI tools, infra.
+- Apply `${PHASE2_RULES_EXTRA}` (or legacy `${PHASE2_PROMPT_PREFIX}`) as rule overrides only; do not alter output schema.
+- If `INCLUDE_CLAUDE_INSIGHTS_QUOTES=true`, quoted excerpts from `INSIGHTS_REPORT_PATH` may be included and should carry attribution when used.
 ```
-
-Prompt prefix is loaded from `.env` as `${PHASE2_PROMPT_PREFIX}` and prepended before the built-in instructions.
 
 **Note**: Compact keys are expanded deterministically after Phase 2 (no LLM translation) before rendering.
 
