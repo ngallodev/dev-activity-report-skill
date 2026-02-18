@@ -137,10 +137,10 @@ Return JSON only (no Markdown, no code fences) with:
 Rules:
 - Output JSON only; no Markdown.
 - Input uses compact keys from PAYLOAD_REFERENCE (p/mk/x/cl/cx/ins/stats).
-- Resume bullets: 5–8 items, achievement-oriented, past tense, quantified where possible.
-- LinkedIn: 3–4 sentences, first person, professional but conversational.
-- Highlights: 2–3 items.
-- Timeline: 5 rows, most recent first.
+- Resume bullets: 5–10 items, achievement-oriented, past tense, quantified where possible.
+- LinkedIn: 3–4 sentences minimum no more than 2 paragraphs, first person, professional but conversational.
+- Highlights: 5+ items.
+- Timeline: minimum 5 rows, up to 30 days of events, most recent first.
 - Tech Inventory: languages, frameworks, AI tools, infra.
 - Apply `${PHASE2_RULES_EXTRA}` (or legacy `${PHASE2_PROMPT_PREFIX}`) as rule overrides only; do not alter output schema.
 - If `INCLUDE_CLAUDE_INSIGHTS_QUOTES=true`, quoted excerpts from `INSIGHTS_REPORT_PATH` may be included and should carry attribution when used.

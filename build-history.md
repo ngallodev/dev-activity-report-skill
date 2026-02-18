@@ -1846,4 +1846,32 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+## Milestone 19 — Fix Per-Project Cache File Write (2026-02-18)
+
+**Problem**: Phase 3 cache verification always reported every project as "missing" after the first run. Phase 1 also never benefited from per-project cache hits — every project was "stale" on every cold run.
+
+**Root cause**: `phase1_runner.py` read per-project `.dev-report-cache.md` files to detect which projects changed (via `read_cache_header` / `parse_cached_fp` / `cache_hit` in `collect_projects`), but **no code ever wrote those files**. The global `.phase1-cache.json` was written correctly, but per-project markers were never created.
+
+**Symptom**: Phase 1 elapsed time was 34s on a "warm" run (all projects re-hashed), and Phase 3 showed every project as `missing`.
+
+### Fix
+
+**`skills/dev-activity-report-skill/scripts/phase1_runner.py`**
+- Added `write_project_cache_files(projects)` that writes `fingerprint: <sha256hex>\ncached_at: <iso>\n` into each project's `.dev-report-cache.md` — the format `parse_cached_fp()` already expected.
+- Called immediately after `write_cache()` in `main()` on every cold run.
+
+**`skills/dev-activity-report-skill/.dev-report-fingerprint-ignore`**
+- Added `.dev-report-cache.md` to the ignore list. Without this, writing the cache file into a non-git project dir would change that project's fingerprint on the very next run, preventing any cache hits.
+
+**`tests/test_contracts_and_caching.py`**
+- Added `TestPerProjectCacheFiles` class with 3 tests covering write, skip-on-empty-fp, and full round-trip hit detection.
+
+### Results
+
+- Phase 3 now shows per-project fingerprints for all 41 projects (was "missing" for all)
+- Phase 1 elapsed: 34.21s (cold) → 2.70s (warm with 16/41 per-project hits)
+- 52/52 tests passing
+
+---
+
 *End of Build History*

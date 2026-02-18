@@ -238,6 +238,34 @@ REPORT_OUTPUT_DIR={tmp_path}/output
         md = render_markdown(report)
         assert "test" in md
 
+    def test_render_markdown_with_insights_quotes_and_sections(self):
+        """Renderer includes insights quotes/sections when present in report JSON."""
+        from render_report import render_markdown
+
+        report = {
+            "generated_at": "2024-01-15T10:00:00Z",
+            "sections": {
+                "overview": {"bullets": ["test"]},
+                "key_changes": [],
+                "recommendations": [],
+                "resume_bullets": [],
+                "linkedin": {"sentences": []},
+                "highlights": [],
+                "timeline": [],
+                "tech_inventory": {},
+            },
+            "insights": {
+                "source": {"log_link": "file:///tmp/insights-log.md"},
+                "quotes": [{"quote": "Automation improved workflow outcomes.", "source_link": "file:///tmp/report.html"}],
+                "sections": [{"title": "Wins", "content": ["- Reduced manual steps by 40%"], "link": "file:///tmp/insights-log.md#wins"}],
+            },
+        }
+
+        md = render_markdown(report)
+        assert "## Insights" in md
+        assert "Automation improved workflow outcomes." in md
+        assert "#### Wins" in md
+
 
 class TestSubprocessFailures:
     """Subprocess crashes are handled gracefully."""

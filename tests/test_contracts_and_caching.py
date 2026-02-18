@@ -213,10 +213,63 @@ class TestCacheBehavior:
     def test_malformed_cache_treated_as_miss(self, tmp_path, monkeypatch):
         """Corrupted cache file treated as miss (not crash)."""
         from phase1_runner import read_cache
-        
+
         cache_file = tmp_path / ".phase1-cache.json"
         cache_file.write_text("not valid json {{[")
         monkeypatch.setattr("phase1_runner.CACHE_FILE", cache_file)
-        
+
         cache = read_cache()
         assert cache is None  # Graceful fallback
+
+
+class TestPerProjectCacheFiles:
+    """Per-project .dev-report-cache.md write/read round-trip."""
+
+    def test_write_project_cache_files_creates_marker(self, tmp_path):
+        """write_project_cache_files writes a parseable header per project."""
+        from phase1_runner import write_project_cache_files, read_cache_header, parse_cached_fp
+
+        proj_dir = tmp_path / "myproject"
+        proj_dir.mkdir()
+        fp = "a" * 64
+        projects = [{"path": str(proj_dir), "fp": fp}]
+
+        write_project_cache_files(projects)
+
+        cache_file = proj_dir / ".dev-report-cache.md"
+        assert cache_file.exists(), ".dev-report-cache.md was not created"
+        header = read_cache_header(proj_dir)
+        assert parse_cached_fp(header) == fp
+
+    def test_write_project_cache_files_skips_missing_fp(self, tmp_path):
+        """Projects with empty fingerprint do not get a cache file."""
+        from phase1_runner import write_project_cache_files
+
+        proj_dir = tmp_path / "emptyproj"
+        proj_dir.mkdir()
+        write_project_cache_files([{"path": str(proj_dir), "fp": ""}])
+
+        assert not (proj_dir / ".dev-report-cache.md").exists()
+
+    def test_per_project_cache_enables_hit_on_rerun(self, tmp_path):
+        """After writing cache files, collect_projects detects cache_hit=True for unchanged projects."""
+        from phase1_runner import write_project_cache_files, collect_projects
+
+        proj_dir = tmp_path / "stable"
+        proj_dir.mkdir()
+        (proj_dir / "README.md").write_text("hello")
+
+        # First collect to get fingerprint
+        projects = collect_projects(tmp_path, {}, {".md"})
+        assert len(projects) == 1
+        fp = projects[0]["fp"]
+        assert fp, "fingerprint must be non-empty"
+        assert not projects[0]["cache_hit"], "no cache file yet → miss"
+
+        # Write cache files
+        write_project_cache_files(projects)
+
+        # Second collect — same content → should be a hit
+        projects2 = collect_projects(tmp_path, {}, {".md"})
+        assert projects2[0]["cache_hit"], "cache file written → should be a hit"
+        assert projects2[0]["fp"] == fp

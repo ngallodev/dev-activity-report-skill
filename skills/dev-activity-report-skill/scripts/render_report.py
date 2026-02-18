@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
+import re
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
@@ -172,6 +175,168 @@ def _md_bullets(lines: Iterable[str], indent: str = "") -> str:
     return "\n".join(f"{indent}- {line}" for line in lines)
 
 
+def _extract_md_section_by_slug(path: Path, slug: str) -> list[str]:
+    try:
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    lines = raw.splitlines()
+    content: list[str] = []
+    in_section = False
+    for line in lines:
+        if line.startswith("### "):
+            title = line[4:].strip().lower()
+            title_slug = re.sub(r"[^a-z0-9]+", "-", title).strip("-")
+            if in_section:
+                break
+            if title_slug == slug:
+                in_section = True
+                continue
+        if in_section and line.strip():
+            content.append(line.rstrip())
+    return content
+
+
+def _read_lines_from_file_url(link: str) -> list[str]:
+    if not link or not link.startswith("file://"):
+        return []
+    parsed = urllib.parse.urlparse(link)
+    path = urllib.parse.unquote(parsed.path)
+    if not path:
+        return []
+    slug = parsed.fragment or ""
+    file_path = Path(path)
+    if not file_path.exists():
+        return []
+    if slug and file_path.suffix.lower() in {".md", ".markdown"}:
+        return _extract_md_section_by_slug(file_path, slug)
+    try:
+        raw = file_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    if file_path.suffix.lower() in {".html", ".htm"}:
+        raw = re.sub(r"(?is)<(script|style)[^>]*>.*?</\\1>", " ", raw)
+        raw = re.sub(r"(?i)<br\\s*/?>", "\n", raw)
+        raw = re.sub(r"(?i)</(p|li|h1|h2|h3|h4|h5|h6|div|section|article)>", "\n", raw)
+        raw = re.sub(r"(?s)<[^>]+>", " ", raw)
+        raw = html.unescape(raw)
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+def _render_insights_markdown(report: dict) -> str:
+    insights = report.get("insights", {}) or {}
+    sections = insights.get("sections", []) or []
+    quotes = insights.get("quotes", []) or []
+    source = insights.get("source", {}) or {}
+    if not sections and not quotes:
+        return ""
+
+    block = ["## Insights", ""]
+    source_link = source.get("log_link") or source.get("report_link") or ""
+    if source_link:
+        block.append(f"Source: {source_link}")
+        block.append("")
+
+    if quotes:
+        block.append("### Quotes")
+        quote_lines = []
+        for item in quotes:
+            if not isinstance(item, dict):
+                continue
+            quote = (item.get("quote") or "").strip()
+            link = (item.get("source_link") or item.get("source_path") or "").strip()
+            if not quote:
+                continue
+            if link:
+                quote_lines.append(f'"{quote}" ({link})')
+            else:
+                quote_lines.append(f'"{quote}"')
+        block.append(_md_bullets(quote_lines) if quote_lines else "- (none)")
+        block.append("")
+
+    if sections:
+        block.append("### Sections")
+        block.append("")
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            title = section.get("title") or "Insights"
+            link = section.get("link") or section.get("report_link") or ""
+            content = section.get("content") or []
+            if not isinstance(content, list):
+                content = []
+            if not content and link:
+                content = _read_lines_from_file_url(link)
+            block.append(f"#### {title}")
+            if link:
+                block.append(f"Source: {link}")
+            if content:
+                block.append(_md_bullets([str(line).strip() for line in content if str(line).strip()]))
+            else:
+                block.append("- (none)")
+            block.append("")
+
+    return "\n".join(line for line in block if line is not None).rstrip()
+
+
+def _render_insights_html(report: dict) -> str:
+    insights = report.get("insights", {}) or {}
+    sections = insights.get("sections", []) or []
+    quotes = insights.get("quotes", []) or []
+    source = insights.get("source", {}) or {}
+    if not sections and not quotes:
+        return ""
+
+    parts: list[str] = []
+    source_link = source.get("log_link") or source.get("report_link") or ""
+    if source_link:
+        safe_link = html.escape(source_link, quote=True)
+        parts.append(f'<p>Source: <a href="{safe_link}">{safe_link}</a></p>')
+
+    if quotes:
+        quote_items: list[str] = []
+        for item in quotes:
+            if not isinstance(item, dict):
+                continue
+            quote = (item.get("quote") or "").strip()
+            link = (item.get("source_link") or item.get("source_path") or "").strip()
+            if not quote:
+                continue
+            safe_quote = html.escape(quote)
+            if link:
+                safe_link = html.escape(link, quote=True)
+                quote_items.append(f'<li>"{safe_quote}" (<a href="{safe_link}">{safe_link}</a>)</li>')
+            else:
+                quote_items.append(f'<li>"{safe_quote}"</li>')
+        if quote_items:
+            parts.append("<h3>Quotes</h3>")
+            parts.append(f"<ul>{''.join(quote_items)}</ul>")
+
+    if sections:
+        parts.append("<h3>Sections</h3>")
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            title = html.escape(section.get("title") or "Insights")
+            link = section.get("link") or section.get("report_link") or ""
+            content = section.get("content") or []
+            if not isinstance(content, list):
+                content = []
+            if not content and link:
+                content = _read_lines_from_file_url(link)
+            parts.append(f"<h4>{title}</h4>")
+            if link:
+                safe_link = html.escape(link, quote=True)
+                parts.append(f'<p>Source: <a href="{safe_link}">{safe_link}</a></p>')
+            if content:
+                lis = "".join(f"<li>{html.escape(str(line))}</li>" for line in content if str(line).strip())
+                parts.append(f"<ul>{lis}</ul>")
+            else:
+                parts.append("<p>(none)</p>")
+
+    return "\n".join(parts)
+
+
 def render_markdown(report: dict) -> str:
     generated_at = report.get("generated_at", "")
     resume_header = report.get("resume_header", "")
@@ -254,6 +419,10 @@ def render_markdown(report: dict) -> str:
     else:
         block.append("- (none)")
     sections.append("\n".join(block))
+
+    insights_md = _render_insights_markdown(report)
+    if insights_md:
+        sections.append(insights_md)
 
     # ── Timeline ──────────────────────────────────────────────────────────────
     timeline = _get_section(report, "timeline") or []
@@ -359,6 +528,8 @@ def render_html(report: dict) -> str:
     else:
         highlights_html = "<p>(none)</p>"
 
+    insights_html = _render_insights_html(report)
+
     # Timeline
     timeline = _get_section(report, "timeline") or []
     if timeline:
@@ -402,6 +573,7 @@ def render_html(report: dict) -> str:
         article("LinkedIn", linkedin_html),
         '<hr class="section-divider">',
         article("Highlights", highlights_html),
+        article("Insights", insights_html) if insights_html else "",
         article("Timeline", timeline_html),
         article("Tech Inventory", tech_html),
     ])

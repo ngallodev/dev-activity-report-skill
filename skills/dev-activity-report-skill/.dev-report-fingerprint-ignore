@@ -57,5 +57,9 @@ settings.json
 package-lock.json
 cache/*
 
+# ── Per-project cache marker (written after every pipeline run) ───────────────
+# Must be excluded so that writing the cache file does not invalidate the next run.
+.dev-report-cache.md
+
 # ── Build chronicle — uncomment if build-history.md changes too frequently ───
 # build-history.md

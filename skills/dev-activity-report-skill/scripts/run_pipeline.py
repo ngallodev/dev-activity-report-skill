@@ -22,6 +22,7 @@ import html
 import json
 import os
 import re
+import urllib.parse
 import subprocess
 import sys
 import time
@@ -186,6 +187,7 @@ def expand_compact_payload(compact: dict) -> dict:
             "skills": codex.get("sk", []) or [],
         },
         "insights": compact.get("ins", []) or [],
+        "insights_meta": compact.get("insm", {}) or {},
         "stats": {
             "total": stats.get("total"),
             "stale": stats.get("stale"),
@@ -221,6 +223,7 @@ def build_source_summary(expanded: dict) -> dict:
         "claude_home": expanded.get("claude_home", {}) or {},
         "codex_home": expanded.get("codex_home", {}) or {},
         "insights": expanded.get("insights", []) or [],
+        "insights_meta": expanded.get("insights_meta", {}) or {},
     }
 
 
@@ -265,6 +268,145 @@ def normalize_sections(sections: dict) -> dict:
             if isinstance(bullets, list):
                 item["bullets"] = [normalize_label(b) if isinstance(b, str) else b for b in bullets]
     return sections
+
+
+def path_to_file_url(path: str) -> str:
+    if not path:
+        return ""
+    return Path(path).resolve().as_uri()
+
+
+def _extract_insights_text_lines(path: Path) -> list[str]:
+    try:
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+
+    # Lightweight HTML-to-text extraction without extra dependencies.
+    raw = re.sub(r"(?is)<(script|style)[^>]*>.*?</\\1>", " ", raw)
+    raw = re.sub(r"(?i)<br\\s*/?>", "\n", raw)
+    raw = re.sub(r"(?i)</(p|li|h1|h2|h3|h4|h5|h6|div|section|article)>", "\n", raw)
+    raw = re.sub(r"(?s)<[^>]+>", " ", raw)
+    text = html.unescape(raw)
+
+    lines: list[str] = []
+    for line in text.splitlines():
+        cleaned = " ".join(line.split()).strip()
+        if cleaned:
+            lines.append(cleaned)
+    return lines
+
+
+def extract_insights_quote_entries(env: dict[str, str]) -> tuple[list[dict[str, str]], str]:
+    """Return (quote_entries, source_path) for optional Phase 2 prompt context."""
+    if not env_bool(env, "INCLUDE_CLAUDE_INSIGHTS_QUOTES", default=False):
+        return [], ""
+
+    path = Path(expand(env.get("INSIGHTS_REPORT_PATH", "~/.claude/usage-data/report.html")))
+    if not path.exists():
+        return [], str(path)
+
+    lines = _extract_insights_text_lines(path)
+    if not lines:
+        return [], str(path)
+
+    keywords = (
+        "usage", "pattern", "wins", "friction", "outcomes", "tool",
+        "session", "workflow", "insight", "delegate", "automation", "report"
+    )
+    candidates: list[str] = []
+    for line in lines:
+        lower = line.lower()
+        is_candidate = (
+            line.startswith("-")
+            or line.startswith("•")
+            or any(k in lower for k in keywords)
+            or len(line.split()) >= 8
+        )
+        if is_candidate and line not in candidates:
+            candidates.append(line)
+
+    max_quotes = int(env.get("CLAUDE_INSIGHTS_QUOTES_MAX", 8) or 8)
+    max_chars = int(env.get("CLAUDE_INSIGHTS_QUOTES_MAX_CHARS", 2000) or 2000)
+    source_path = str(path)
+    source_link = path_to_file_url(source_path)
+    selected: list[dict[str, str]] = []
+    total = 0
+    for line in candidates:
+        if total + len(line) > max_chars and selected:
+            break
+        selected.append(
+            {
+                "quote": line,
+                "source_path": source_path,
+                "source_link": source_link,
+            }
+        )
+        total += len(line)
+        if len(selected) >= max_quotes:
+            break
+    return selected, source_path
+
+
+def parse_insights_sections(insights_lines: list[str], env: dict[str, str]) -> dict:
+    """Parse phase-1 insights markdown tail into structured sections with links."""
+    log_path = SKILL_DIR / "references" / "examples" / "insights" / "insights-log.md"
+    report_path = Path(expand(env.get("INSIGHTS_REPORT_PATH", "~/.claude/usage-data/report.html")))
+    log_url = path_to_file_url(str(log_path))
+    report_url = path_to_file_url(str(report_path))
+
+    sections: list[dict[str, object]] = []
+    current_date = ""
+    current_title = ""
+    content: list[str] = []
+
+    def flush_current() -> None:
+        nonlocal current_title, content
+        if not current_title:
+            return
+        section_id = slugify(current_title) or "insights"
+        sections.append(
+            {
+                "id": section_id,
+                "title": current_title,
+                "entry_date": current_date,
+                "content": content[:],
+                "link": f"{log_url}#{urllib.parse.quote(section_id)}" if log_url else "",
+                "report_link": f"{report_url}#{urllib.parse.quote(section_id)}" if report_url else "",
+            }
+        )
+        current_title = ""
+        content = []
+
+    for raw in insights_lines:
+        line = (raw or "").strip()
+        if not line:
+            continue
+        if line.startswith("## "):
+            flush_current()
+            current_date = line[3:].strip()
+            continue
+        if line.startswith("### "):
+            flush_current()
+            current_title = line[4:].strip()
+            continue
+        if line.startswith("#"):
+            continue
+        if not current_title:
+            current_title = "Insights Notes"
+        content.append(line)
+
+    flush_current()
+
+    return {
+        "source": {
+            "log_path": str(log_path),
+            "log_link": log_url,
+            "report_path": str(report_path),
+            "report_link": report_url,
+        },
+        "sections": sections,
+    }
 
 
 def parse_llm_json_output(raw_text: str) -> dict:
@@ -381,7 +523,8 @@ with the following shape:
     "linkedin":{{"sentences":["..."]}},
     "highlights":[{{"title":"...","rationale":"...","evidence_project_ids":["..."]}}],
     "timeline":[{{"date":"YYYY-MM-DD","event":"...","project_ids":["..."]}}],
-    "tech_inventory":{{"languages":["..."],"frameworks":["..."],"ai_tools":["..."],"infra":["..."]}}
+    "tech_inventory":{{"languages":["..."],"frameworks":["..."],"ai_tools":["..."],"infra":["..."]}},
+    "insights_quotes":[{{"quote":"...","source_path":"...","source_link":"...","section_id":"...","section_title":"..."}}]
   }},
   "render_hints":{{"preferred_outputs":["md","html"],"style":"concise","tone":"professional"}}
 }}
@@ -395,74 +538,18 @@ Rules:
 - Highlights: 2–3 items, engineering depth + practical AI integration.
 - Timeline: 5 rows, most recent first.
 - Tech Inventory: languages, frameworks, AI tools, infra.
+- insights_quotes is optional; include 0-6 entries when relevant and preserve source fields.
 - Keep bullets short; no meta commentary.
 """
 
 
 def extract_insights_quotes(env: dict[str, str]) -> tuple[str, str]:
     """Return (insights_block, source_path) for optional Phase 2 prompt context."""
-    if not env_bool(env, "INCLUDE_CLAUDE_INSIGHTS_QUOTES", default=False):
-        return "", ""
-
-    path = Path(expand(env.get("INSIGHTS_REPORT_PATH", "~/.claude/usage-data/report.html")))
-    if not path.exists():
-        return "", str(path)
-
-    try:
-        raw = path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return "", str(path)
-
-    # Lightweight HTML-to-text extraction without extra dependencies.
-    raw = re.sub(r"(?is)<(script|style)[^>]*>.*?</\\1>", " ", raw)
-    raw = re.sub(r"(?i)<br\\s*/?>", "\n", raw)
-    raw = re.sub(r"(?i)</(p|li|h1|h2|h3|h4|h5|h6|div|section|article)>", "\n", raw)
-    raw = re.sub(r"(?s)<[^>]+>", " ", raw)
-    text = html.unescape(raw)
-
-    lines: list[str] = []
-    for line in text.splitlines():
-        cleaned = " ".join(line.split()).strip()
-        if cleaned:
-            lines.append(cleaned)
-
-    if not lines:
-        return "", str(path)
-
-    keywords = (
-        "usage", "pattern", "wins", "friction", "outcomes", "tool",
-        "session", "workflow", "insight", "delegate", "automation", "report"
-    )
-    candidates: list[str] = []
-    for line in lines:
-        lower = line.lower()
-        is_candidate = (
-            line.startswith("-")
-            or line.startswith("•")
-            or any(k in lower for k in keywords)
-            or len(line.split()) >= 8
-        )
-        if is_candidate and line not in candidates:
-            candidates.append(line)
-
-    max_quotes = int(env.get("CLAUDE_INSIGHTS_QUOTES_MAX", 8) or 8)
-    max_chars = int(env.get("CLAUDE_INSIGHTS_QUOTES_MAX_CHARS", 2000) or 2000)
-    selected: list[str] = []
-    total = 0
-    for line in candidates:
-        quoted = f'"{line}"'
-        if total + len(quoted) > max_chars and selected:
-            break
-        selected.append(quoted)
-        total += len(quoted)
-        if len(selected) >= max_quotes:
-            break
-
-    if not selected:
-        return "", str(path)
-
-    block = "\n".join(f"- {item}" for item in selected)
-    return block, str(path)
+    entries, source = extract_insights_quote_entries(env)
+    if not entries:
+        return "", source
+    block = "\n".join(f'- "{item.get("quote", "")}"' for item in entries if item.get("quote"))
+    return block, source
 
 
 def call_phase2(
@@ -481,11 +568,14 @@ def call_phase2(
             f"{extra_rules}\n\n"
         )
     insights_block, insights_source = extract_insights_quotes(env)
+    insight_quote_entries, _ = extract_insights_quote_entries(env)
     insights_prompt_block = ""
     if insights_block:
+        quotes_json = json.dumps(insight_quote_entries, separators=(",", ":"))
         insights_prompt_block = (
             f"Claude insights report excerpts (source: {insights_source}):\n"
             f"{insights_block}\n\n"
+            f"Insights quote reference JSON (use this for sections.insights_quotes):\n{quotes_json}\n\n"
             "If you use these excerpts, include short attribution text in the relevant bullet/sentence "
             '(e.g., "(source: Claude insights report)").\n\n'
         )
@@ -856,6 +946,33 @@ def run(
     expanded_payload = expand_compact_payload(compact_payload)
     source_summary = build_source_summary(expanded_payload)
     sections = normalize_sections(sections)
+    insights_meta = parse_insights_sections(expanded_payload.get("insights", []), env)
+    insights_quotes, _ = extract_insights_quote_entries(env)
+    phase2_quotes = []
+    if isinstance(sections.get("insights_quotes"), list):
+        for item in sections.get("insights_quotes") or []:
+            if not isinstance(item, dict):
+                continue
+            quote = (item.get("quote") or "").strip()
+            if not quote:
+                continue
+            phase2_quotes.append(
+                {
+                    "quote": quote,
+                    "source_path": item.get("source_path", ""),
+                    "source_link": item.get("source_link", ""),
+                    "section_id": item.get("section_id", ""),
+                    "section_title": item.get("section_title", ""),
+                }
+            )
+    merged_quotes: list[dict[str, str]] = []
+    seen_quotes: set[str] = set()
+    for item in phase2_quotes + insights_quotes:
+        quote = (item.get("quote") or "").strip()
+        if not quote or quote in seen_quotes:
+            continue
+        seen_quotes.add(quote)
+        merged_quotes.append(item)
 
     report_obj = {
         "schema_version": "dev-activity-report.v1",
@@ -867,6 +984,11 @@ def run(
         },
         "source_summary": source_summary,
         "sections": sections,
+        "insights": {
+            "source": insights_meta.get("source", {}),
+            "sections": insights_meta.get("sections", []),
+            "quotes": merged_quotes,
+        },
         "render_hints": render_hints,
         "source_payload": compact_payload if include_source_payload else None,
     }

@@ -92,6 +92,45 @@ class TestPhase2JsonParsing:
         assert "Delivered two complex automation upgrades." in block
         assert source == str(html_file)
 
+    def test_extract_insights_quote_entries_opt_in(self, tmp_path):
+        import run_pipeline
+
+        html_file = tmp_path / "report.html"
+        html_file.write_text(
+            "<html><body><p>Workflow outcomes improved after automation cleanup.</p></body></html>",
+            encoding="utf-8",
+        )
+        env = {
+            "INCLUDE_CLAUDE_INSIGHTS_QUOTES": "true",
+            "INSIGHTS_REPORT_PATH": str(html_file),
+            "CLAUDE_INSIGHTS_QUOTES_MAX": "3",
+            "CLAUDE_INSIGHTS_QUOTES_MAX_CHARS": "500",
+        }
+        entries, source = run_pipeline.extract_insights_quote_entries(env)
+        assert entries
+        assert entries[0]["quote"].startswith("Workflow outcomes")
+        assert entries[0]["source_path"] == str(html_file)
+        assert entries[0]["source_link"].startswith("file://")
+        assert source == str(html_file)
+
+    def test_parse_insights_sections(self):
+        import run_pipeline
+
+        env = {"INSIGHTS_REPORT_PATH": "/tmp/report.html"}
+        parsed = run_pipeline.parse_insights_sections(
+            [
+                "## 2026-02-18",
+                "### Wins",
+                "- Improved report quality",
+                "### Friction",
+                "- Missing quote links",
+            ],
+            env,
+        )
+        assert parsed["sections"]
+        assert parsed["sections"][0]["id"] == "wins"
+        assert parsed["sections"][0]["entry_date"] == "2026-02-18"
+
 
 class TestThoroughRefresh:
     """Refresh utility computes expected marker/cache actions."""

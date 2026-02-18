@@ -237,6 +237,28 @@ def is_git_repo(path: Path) -> bool:
         return False
 
 
+def find_git_repos(path: Path) -> list[Path]:
+    """Use 'find' to check the root of every top-level subfolder for a .git directory."""
+    if not path.exists():
+        return []
+    try:
+        # We look for <path>/<subfolder>/.git (maxdepth 2, mindepth 2)
+        cmd = ["find", str(path), "-maxdepth", "2", "-mindepth", "2", "-name", ".git"]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=os.environ,
+        )
+        if result.returncode != 0:
+            return []
+        # The repository root is the parent of the .git directory
+        return [Path(line).parent for line in result.stdout.splitlines() if line.strip()]
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+
 def git_head(path: Path) -> str:
     if pygit2 is not None:
         try:
@@ -349,13 +371,17 @@ def collect_projects(apps_dir: Path, status_map: dict[str, str], allowed_exts: s
     projects: list[dict[str, object]] = []
     if not apps_dir.exists():
         return projects
+
+    # Efficiently find git repos in top-level subfolders before pygit2/subprocess checks
+    git_repo_paths = set(find_git_repos(apps_dir))
+
     for child in sorted(apps_dir.iterdir()):
         if not child.is_dir():
             continue
         project_status = status_map.get(child.name, "orig")
         if project_status in {"not", "skip"}:
             continue
-        git_repo = is_git_repo(child)
+        git_repo = child in git_repo_paths
         fingerprint = hash_git_repo(child) if git_repo else hash_non_git_dir(child, allowed_exts)
         head = git_head(child) if git_repo else ""
         cache_header = read_cache_header(child)
@@ -565,14 +591,14 @@ def tail_lines(path: Path, limit: int = MAX_INSIGHTS_LINES) -> list[str]:
         return []
 
 
-def collect_insights_log(env: dict[str, str]) -> tuple[list[str], str]:
+def collect_insights_log(env: dict[str, str]) -> tuple[list[str], str, dict[str, str]]:
     insights_lines = tail_lines(INSIGHTS_LOG, limit=MAX_INSIGHTS_LINES)
     insights_fp = hash_file(INSIGHTS_LOG) if INSIGHTS_LOG.exists() else ""
     report_path = expand_path(env.get("INSIGHTS_REPORT_PATH", ""))
     if report_path.exists():
         report_hash = hash_file(report_path)
         insights_fp = hashlib.sha256((insights_fp + report_hash).encode()).hexdigest()
-    return insights_lines, insights_fp
+    return insights_lines, insights_fp, {"log_path": str(INSIGHTS_LOG), "report_path": str(report_path)}
 
 
 def list_dir(path: Path, limit: int = 20) -> list[str]:
@@ -708,6 +734,29 @@ def write_cache(fingerprint: str, payload: dict[str, object]) -> None:
             pass
 
 
+def write_project_cache_files(projects: list[dict[str, object]]) -> None:
+    """Write per-project .dev-report-cache.md files with each project's fingerprint.
+
+    These marker files let subsequent runs detect per-project cache hits without
+    re-reading the global .phase1-cache.json.  The header format must match what
+    parse_cached_fp() expects: ``fingerprint: <sha256hex>``.
+    """
+    ts = datetime.now(timezone.utc).isoformat()
+    for proj in projects:
+        fp = proj.get("fp", "")
+        if not fp:
+            continue
+        path = Path(proj["path"])
+        cache_file = path / ".dev-report-cache.md"
+        try:
+            cache_file.write_text(
+                f"fingerprint: {fp}\ncached_at: {ts}\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+
+
 def build_payload(
     timestamp: str,
     apps_roots: list[Path],
@@ -719,6 +768,7 @@ def build_payload(
     claude_payload: dict[str, object],
     codex_payload: dict[str, object],
     insights_lines: list[str],
+    insights_meta: dict[str, str],
 ) -> dict[str, object]:
     marker_compact = [{"m": m["m"], "p": m["p"], "r": m.get("r", "")} for m in markers]
     primary_root = str(apps_roots[0]) if apps_roots else ""
@@ -733,6 +783,7 @@ def build_payload(
         "cl": claude_payload,
         "cx": codex_payload,
         "ins": insights_lines,
+        "insm": insights_meta,
         "stats": {
             "total": len(projects),
             "stale": len(stale_projects),
@@ -770,7 +821,7 @@ def main() -> None:
     extra_summaries = [collect_extra_location(d, allowed_exts) for d in extra_dirs]
     claude_payload, claude_meta = collect_claude_activity(claude_home, allowed_exts)
     codex_payload, codex_meta = collect_codex_activity(codex_home, allowed_exts)
-    insights_lines, insights_fp = collect_insights_log(env)
+    insights_lines, insights_fp, insights_meta = collect_insights_log(env)
 
     fingerprint_source = compute_fingerprint_source(
         apps_roots,
@@ -798,9 +849,11 @@ def main() -> None:
         claude_payload=claude_payload,
         codex_payload=codex_payload,
         insights_lines=insights_lines,
+        insights_meta=insights_meta,
     )
 
     write_cache(fingerprint, payload)
+    write_project_cache_files(projects)
     print(json.dumps({"fp": fingerprint, "cache_hit": False, "data": payload}, separators=(",", ":"), ensure_ascii=False))
 
 

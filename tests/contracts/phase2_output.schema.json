@@ -92,6 +92,20 @@
             "ai_tools": {"type": "array", "items": {"type": "string"}},
             "infra": {"type": "array", "items": {"type": "string"}}
           }
+        },
+        "insights_quotes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["quote"],
+            "properties": {
+              "quote": {"type": "string"},
+              "source_path": {"type": "string"},
+              "source_link": {"type": "string"},
+              "section_id": {"type": "string"},
+              "section_title": {"type": "string"}
+            }
+          }
         }
       }
     },
