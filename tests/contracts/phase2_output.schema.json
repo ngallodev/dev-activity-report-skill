@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Phase 2 Output Schema",
+  "description": "Contract for JSON output from Phase 2 LLM analysis",
+  "type": "object",
+  "required": ["sections"],
+  "properties": {
+    "sections": {
+      "type": "object",
+      "required": ["overview", "key_changes", "recommendations", "resume_bullets", "linkedin", "highlights", "timeline", "tech_inventory"],
+      "properties": {
+        "overview": {
+          "type": "object",
+          "required": ["bullets"],
+          "properties": {
+            "bullets": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "key_changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "bullets"],
+            "properties": {
+              "title": {"type": "string"},
+              "bullets": {"type": "array", "items": {"type": "string"}},
+              "project_id": {"type": ["string", "null"]},
+              "tags": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        },
+        "recommendations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["text", "priority"],
+            "properties": {
+              "text": {"type": "string"},
+              "priority": {"enum": ["low", "medium", "high"]},
+              "evidence_project_ids": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        },
+        "resume_bullets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+              "text": {"type": "string"},
+              "evidence_project_ids": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        },
+        "linkedin": {
+          "type": "object",
+          "required": ["sentences"],
+          "properties": {
+            "sentences": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "rationale"],
+            "properties": {
+              "title": {"type": "string"},
+              "rationale": {"type": "string"},
+              "evidence_project_ids": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        },
+        "timeline": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["date", "event"],
+            "properties": {
+              "date": {"type": "string", "format": "date"},
+              "event": {"type": "string"},
+              "project_ids": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        },
+        "tech_inventory": {
+          "type": "object",
+          "required": ["languages", "frameworks", "ai_tools", "infra"],
+          "properties": {
+            "languages": {"type": "array", "items": {"type": "string"}},
+            "frameworks": {"type": "array", "items": {"type": "string"}},
+            "ai_tools": {"type": "array", "items": {"type": "string"}},
+            "infra": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+      }
+    },
+    "render_hints": {
+      "type": "object",
+      "properties": {
+        "preferred_outputs": {"type": "array", "items": {"enum": ["md", "html"]}},
+        "style": {"type": "string"},
+        "tone": {"type": "string"}
+      }
+    }
+  }
+}

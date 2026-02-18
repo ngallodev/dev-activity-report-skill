@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Phase 1 Output Schema",
+  "description": "Contract for output from phase1_runner.py",
+  "type": "object",
+  "required": ["ts", "ad", "mk", "p", "stats"],
+  "properties": {
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp (UTC ISO) when Phase 1 ran"
+    },
+    "ad": {
+      "type": "string",
+      "description": "Apps directory scanned"
+    },
+    "mk": {
+      "type": "array",
+      "description": "Ownership markers found",
+      "items": {
+        "type": "object",
+        "required": ["m", "p"],
+        "properties": {
+          "m": {
+            "type": "string",
+            "enum": [".skip-for-now", ".not-my-work", ".forked-work", ".forked-work-modified"]
+          },
+          "p": {"type": "string"},
+          "path": {"type": "string"},
+          "r": {"type": "string"}
+        }
+      }
+    },
+    "p": {
+      "type": "array",
+      "description": "Stale projects needing analysis",
+      "items": {
+        "type": "object",
+        "required": ["n", "pt", "fp", "st"],
+        "properties": {
+          "n": {"type": "string"},
+          "pt": {"type": "string"},
+          "fp": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "st": {"enum": ["orig", "fork", "fork_mod", "skip", "not"]},
+          "cc": {"type": "integer", "minimum": 0},
+          "sd": {"type": "string"},
+          "fc": {"type": "array", "items": {"type": "string"}},
+          "msg": {"type": "array", "items": {"type": "string"}},
+          "hl": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "required": ["total", "stale", "cached"],
+      "properties": {
+        "total": {"type": "integer"},
+        "stale": {"type": "integer"},
+        "cached": {"type": "integer"}
+      }
+    }
+  }
+}

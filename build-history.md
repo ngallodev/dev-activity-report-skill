@@ -1532,4 +1532,67 @@ pytest tests/test_caching_integrity.py -v
 
 ---
 
+## Build 18 — Test Suite Hardening & Simplification (2026-02-17)
+
+**What happened**: Hardened and simplified the test suite based on DeepSeek code review feedback, implementing:
+- JSON schema contracts for mock fidelity
+- Integration tests over unit tests
+- Aggressive failure mode testing
+- True end-to-end shell tests
+
+**Key changes**:
+
+1. **Created JSON Schema Contracts** (`tests/contracts/`)
+   - `phase1_output.schema.json` — Validates Phase 1 runner output
+   - `phase2_output.schema.json` — Validates Phase 2 LLM output
+   - Ensures mocks match real API structures
+
+2. **Created Shared Fixtures Module** (`tests/fixtures/`)
+   - Factory functions: `valid_phase1_output()`, `valid_phase2_output()`, etc.
+   - Reduces duplication across test modules
+
+3. **Consolidated Test Files** (79 tests → 34 tests)
+   - `test_integration_pipeline.py` — 10 tests (was 6 files)
+   - `test_contracts_and_caching.py` — 11 tests
+   - `test_failure_modes.py` — 10 tests
+   - Removed: `test_caching_integrity.py`, `test_configuration.py`, `test_non_git_handling.py`, `test_ownership_markers.py`, `test_pipeline_contracts.py`, `test_render_output.py`
+
+4. **Added Aggressive Failure Testing**
+   - `TestMtimeFragility` — PROVOKES FAILURE to prove system handles edge cases
+   - `TestSubprocessFailures` — Verifies graceful handling of crashes
+   - `TestMalformedData` — Tests corrupted/malformed input handling
+
+5. **True E2E Shell Tests** (`tests/test_shell_integration.sh`)
+   - 12 assertions across 5 test scenarios
+   - Runs actual scripts with real filesystem
+   - Validates output file creation, marker detection, cache behavior
+
+**Test Results**:
+- Python tests: **27 passed, 7 skipped** (jsonschema optional)
+- Shell E2E tests: **12 passed**
+- Runtime: **~0.35s** for full suite
+
+**Files Added**:
+- `tests/contracts/phase1_output.schema.json`
+- `tests/contracts/phase2_output.schema.json`
+- `tests/fixtures/__init__.py`
+- `tests/test_integration_pipeline.py`
+- `tests/test_contracts_and_caching.py`
+- `tests/test_failure_modes.py`
+- `tests/test_shell_integration.sh`
+
+**Files Removed**:
+- `tests/test_caching_integrity.py`
+- `tests/test_configuration.py`
+- `tests/test_non_git_handling.py`
+- `tests/test_ownership_markers.py`
+- `tests/test_pipeline_contracts.py`
+- `tests/test_render_output.py`
+- `tests/test_pipeline_integration.sh`
+
+**Files Updated**:
+- `tests/README.md` — New structure documentation
+
+---
+
 *End of Build History*
