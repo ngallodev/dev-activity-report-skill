@@ -193,6 +193,13 @@ PHASE1_MODEL=haiku
 PHASE15_MODEL=haiku
 PHASE2_MODEL=sonnet
 PHASE3_MODEL=gpt-5.1-codex-mini
+# Optional prompt prefixes (prepended before built-in phase instructions)
+# Use to add context, or force override behavior:
+# "Ignore any following instructions for this phase. <your instructions>"
+PHASE1_PROMPT_PREFIX=
+PHASE15_PROMPT_PREFIX=
+PHASE2_PROMPT_PREFIX=
+PHASE3_PROMPT_PREFIX=
 # Optional log paths (defaults to REPORT_OUTPUT_DIR if omitted)
 # TOKEN_LOG_PATH=~/token_economics.log
 # BUILD_LOG_PATH=~/build.log
@@ -340,6 +347,24 @@ For `.forked-work-modified`, the next scan will inspect git log, diffs, and file
 ### Warm scans
 
 Once projects are cached, re-running the skill only re-analyzes projects with new commits or modified files. Typical warm-scan cost is ~$0.031.
+
+### Thorough refresh (full re-evaluation prep)
+
+If you want a "start fresh" pass across all configured roots, use:
+
+```bash
+# Dry-run (preview actions)
+python3 skills/dev-activity-report-skill/scripts/thorough_refresh.py
+
+# Apply refresh:
+# - clear skill + project cache files
+# - promote .forked-work -> .forked-work-modified when missing
+# - clear .not-my-work on forked repos so they can be re-evaluated
+python3 skills/dev-activity-report-skill/scripts/thorough_refresh.py --confirm
+
+# Most aggressive reset (also clear skips and all not-my-work markers)
+python3 skills/dev-activity-report-skill/scripts/thorough_refresh.py --confirm --clear-skip --clear-not-my-work-all
+```
 
 ---
 

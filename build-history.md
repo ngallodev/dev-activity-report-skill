@@ -1631,4 +1631,91 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+## Build 20 — Phase Prompt Prefix Overrides for .env-driven Custom Instructions (2026-02-18)
+
+**What happened**: Added per-phase prompt-prefix hooks so users can inject additional instructions from `.env` before built-in prompts. This supports both additive guidance and explicit override patterns (for example: "Ignore any following instructions for this phase...").
+
+### Runtime changes
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/run_report.sh` | Added `PHASE1_PROMPT_PREFIX`, `PHASE15_PROMPT_PREFIX`, `PHASE2_PROMPT_PREFIX`, `PHASE3_PROMPT_PREFIX`; each is prepended before the corresponding hardcoded phase prompt |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Added `PHASE15_PROMPT_PREFIX` and `PHASE2_PROMPT_PREFIX` support in Claude CLI prompt construction |
+| `skills/dev-activity-report-skill/scripts/phase1_5_draft.py` | `build_prompt()` now accepts env and prepends `PHASE15_PROMPT_PREFIX` before the default draft prompt |
+| `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh` | Added per-phase prompt prefixes for test runs and parameterized Phase 3 model via `PHASE3_MODEL` |
+
+### Documentation updates
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/SKILL.md` | Added new `.env` keys for prompt prefixes and documented placeholders before built-in phase prompts |
+| `skills/dev-activity-report-skill/references/examples/.env.example` | Added prompt-prefix variables with guidance on additive vs override instruction patterns |
+| `README.md` | Added prompt-prefix examples in the `.env` snippet under model configuration |
+
+### Benchmarks
+
+- `pytest tests/ -q`: **34 passed in 0.35s** (no regressions)
+
+---
+
+## Build 21 — Phase 2 JSON Parser Hardening for Fenced LLM Output (2026-02-18)
+
+**What happened**: Hardened Phase 2 JSON parsing to tolerate markdown-wrapped JSON (` ```json ... ``` `) and minor wrapper text around the JSON object. This fixes report failures when the model returns valid JSON content inside code fences.
+
+### Root cause
+
+- Phase 2 model responses were occasionally returned as fenced markdown:
+  - First line: ```` ```json ````
+  - Last line: ```` ``` ````
+- Existing parser used strict `json.loads(report_text)`, which fails when fences are present.
+- The JSON payload itself remained valid once fences were removed.
+
+### Changes
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Added `parse_llm_json_output()` that accepts fenced JSON and extracts top-level JSON object before validation |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Phase 2 parse path now uses `parse_llm_json_output(report_text)` instead of direct `json.loads(report_text)` |
+| `skills/dev-activity-report-skill/scripts/run_report.sh` | Phase 2.5 assembly now imports and reuses `parse_llm_json_output()` for consistency with pipeline behavior |
+
+### Benchmarks
+
+- `pytest tests/ -q`: **34 passed in 0.38s**
+- Full foreground run:
+  - `python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground`
+  - **Succeeded**; total **48.28s** (`p1=0.39s`, `p1.5=9.70s`, `p2=38.09s`)
+  - Outputs:
+
+
+---
+
+## Build 22 — Thorough Refresh Utility + Parser/Reset Test Coverage (2026-02-18)
+
+**What happened**: Added a dedicated `thorough_refresh.py` reset utility for full re-evaluation prep and expanded test coverage for both Phase 2 JSON parser hardening and refresh planning logic.
+
+### Utility added
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/thorough_refresh.py` | New reset script with dry-run/apply modes; clears cache files across skill/installed-skill/project roots; promotes `.forked-work` to `.forked-work-modified`; supports optional clearing of `.skip-for-now` and `.not-my-work` markers |
+
+### Documentation updates
+
+| File | Change |
+|------|--------|
+| `README.md` | Added "Thorough refresh" section with dry-run/apply command examples and aggressive reset mode |
+| `tests/README.md` | Added coverage notes for parser/refresh tests and updated test counts |
+
+### Tests added
+
+| File | Coverage |
+|------|----------|
+| `tests/test_prompt_parsing_and_refresh.py` | Validates `parse_llm_json_output()` plain/fenced/wrapped JSON behavior and rejection of invalid top-level shapes; validates `thorough_refresh.py` root resolution and marker/cache planning logic |
+
+### Benchmarks
+
+- `pytest tests/ -q`: **41 passed in 0.35s**
+
+---
+
 *End of Build History*

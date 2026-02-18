@@ -42,14 +42,18 @@ def load_env() -> dict[str, str]:
     return env
 
 
-def build_prompt(summary: Dict[str, Any]) -> str:
-    return (
+def build_prompt(summary: Dict[str, Any], env: dict[str, str]) -> str:
+    prompt = (
         "You are a terse assistant drafting a dev activity report. "
         "Input JSON uses abbreviated keys (see PAYLOAD_REFERENCE). "
         "Write a bullet draft only; no commentary.\n\n"
         f"Summary:\n{json.dumps(summary, separators=(',',':'))}\n\n"
         "Output:\n- 5–8 bullets (concise)\n- 2 sentence overview"
     )
+    prefix = (env.get("PHASE15_PROMPT_PREFIX") or "").strip()
+    if prefix:
+        return f"{prefix}\n\n{prompt}"
+    return prompt
 
 
 def call_model(prompt: str, env: dict[str, str], summary: Dict[str, Any]) -> tuple[str, dict[str, int]]:
@@ -100,7 +104,7 @@ def main() -> None:
     summary = wrapped.get("data") or wrapped
 
     env = load_env()
-    prompt = build_prompt(summary)
+    prompt = build_prompt(summary, env)
     draft, usage = call_model(prompt, env, summary)
 
     record_cost = None

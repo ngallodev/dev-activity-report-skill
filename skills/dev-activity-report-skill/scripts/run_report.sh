@@ -25,6 +25,10 @@ PHASE15_MODEL="${PHASE15_MODEL:-$PHASE1_MODEL}"
 PHASE2_MODEL="${PHASE2_MODEL:-sonnet}"
 PHASE3_MODEL="${PHASE3_MODEL:-haiku}"
 REPORT_SANDBOX="${REPORT_SANDBOX:-workspace-write}"
+PHASE1_PROMPT_PREFIX="${PHASE1_PROMPT_PREFIX:-}"
+PHASE15_PROMPT_PREFIX="${PHASE15_PROMPT_PREFIX:-}"
+PHASE2_PROMPT_PREFIX="${PHASE2_PROMPT_PREFIX:-}"
+PHASE3_PROMPT_PREFIX="${PHASE3_PROMPT_PREFIX:-}"
 
 # Output directory: prefer REPORT_OUTPUT_DIR from .env, fall back to $HOME.
 OUTPUT_DIR="${REPORT_OUTPUT_DIR:-$HOME}"
@@ -238,17 +242,20 @@ fi
 PHASE1_CMD_STR="$(printf '%q ' "${PHASE1_CMD[@]}")"
 PHASE1_CMD_STR="${PHASE1_CMD_STR% }"
 "$CODEX_BIN" exec -m "$PHASE1_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE1_OUT" - <<EOF
+${PHASE1_PROMPT_PREFIX}
 Please run \`$PHASE1_CMD_STR\` and print only the JSON output produced by the script.
 EOF
 
 echo "== Phase 1.5 ($PHASE15_MODEL): draft =="
 "$CODEX_BIN" exec -m "$PHASE15_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE15_OUT" - <<EOF
+${PHASE15_PROMPT_PREFIX}
 Use advanced reasoning. Read the JSON blob at $SKILL_DIR/.phase1-cache.json.
 Output a rough draft only: 5–8 bullets + a 2-sentence overview. No extra commentary.
 EOF
 
 echo "== Phase 2 ($PHASE2_MODEL): structured analysis =="
 "$CODEX_BIN" exec -m "$PHASE2_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE2_OUT" - <<EOF
+${PHASE2_PROMPT_PREFIX}
 You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Read the compact JSON blob stored at $SKILL_DIR/.phase1-cache.json and the draft at $PHASE15_OUT. Input uses compact keys from PAYLOAD_REFERENCE (p/mk/x/cl/cx/ins/stats). Then output JSON only with:
 
 {
@@ -297,7 +304,12 @@ from pathlib import Path
 
 skill_dir = Path(os.environ["SKILL_DIR"])
 sys.path.insert(0, str(skill_dir / "scripts"))
-from run_pipeline import expand_compact_payload, build_source_summary, normalize_sections
+from run_pipeline import (
+    expand_compact_payload,
+    build_source_summary,
+    normalize_sections,
+    parse_llm_json_output,
+)
 
 phase1_out = Path(os.environ["PHASE1_OUT"])
 phase1_cache = skill_dir / ".phase1-cache.json"
@@ -317,7 +329,7 @@ compact = phase1_payload.get("data", phase1_payload)
 expanded = expand_compact_payload(compact)
 source_summary = build_source_summary(expanded)
 
-sections_obj = json.loads(phase2_out.read_text())
+sections_obj = parse_llm_json_output(phase2_out.read_text())
 if "sections" in sections_obj:
     sections = sections_obj.get("sections") or {}
     render_hints = sections_obj.get("render_hints") or {}
@@ -354,6 +366,7 @@ python3 "$SKILL_DIR/scripts/render_report.py" \
 
 echo "== Phase 3 ($PHASE3_MODEL): cache verification =="
 "$CODEX_BIN" exec -m "$PHASE3_MODEL" --approval never --sandbox "$REPORT_SANDBOX" - <<EOF
+${PHASE3_PROMPT_PREFIX}
 Please run the following Python command:
 
 python3 - <<'PY'
