@@ -171,7 +171,7 @@ The cache system is most valuable when project count is high — each cached pro
 
 ## Real Test Results (Feb 14, 2026 — Codex CLI validation)
 
-Phase 1, 2, and 3 were replayed via `/home/nate/.nvm/versions/node/v22.19.0/bin/codex exec` with `gpt-5.1-codex-mini` for the mechanical phases and `gpt-5.1-codex` for the report synthesis. Output artifacts live in `run_codex_test_report.sh` and `codex-test-report-20260214T134156Z.md`.
+Phase 1, 2, and 3 were replayed via `codex exec` (resolved from `PATH`) with `gpt-5.1-codex-mini` for the mechanical phases and `gpt-5.1-codex` for the report synthesis. Output artifacts live in `run_codex_test_report.sh` and `codex-test-report-20260214T134156Z.md`.
 
 ### Token profile
 

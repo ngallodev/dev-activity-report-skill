@@ -1595,4 +1595,40 @@ pytest tests/test_caching_integrity.py -v
 
 ---
 
+## Build 19 — PII Scrub, Security Review & Pre-Launch Hardening (2026-02-17)
+
+**What happened**: Pre-launch audit pass. Conducted an independent security review of the codebase (and critically evaluated a prior DeepSeek review), removed all PII and hardcoded local paths from user-facing files, and added two documentation clarifications identified as genuinely missing.
+
+### PII / hardcoded path removal
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/SKILL.md` | `APPS_DIR` default: `/lump/apps` → `~/projects`; `EXTRA_SCAN_DIRS` example removed; `RESUME_HEADER` placeholder: `ngallodev Software…` → `Your Name Software…` |
+| `skills/dev-activity-report-skill/references/PAYLOAD_REFERENCE.md` | Three example values using `/lump/apps` replaced with `~/projects` |
+| `skills/dev-activity-report-skill/references/examples/token-economics.md` | Hardcoded `/home/nate/.nvm/.../codex` replaced with `codex exec (resolved from PATH)` |
+| `tests/README.md` | `cd /lump/apps/dev-activity-report-skill` → `cd /path/to/dev-activity-report-skill` |
+
+`build-history.md`, `agent-notes/`, `code-review-report.md`, and `planning-docs/` left as-is (historical logs, internal notes).
+
+### Security review findings
+
+Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`, `phase1_5_draft.py`, `setup_env.py`, and supporting scripts. Key findings vs DeepSeek's report:
+
+- **No `shell=True` anywhere** — DeepSeek's "Critical" command injection finding is incorrect. All subprocess calls use list form; shell metacharacters are inert.
+- **`os.walk` does not follow symlinks by default** — DeepSeek's symlink following finding is factually wrong (`followlinks=False` is the Python default; no call uses `followlinks=True`).
+- **API key subprocess inheritance** — real but Low for a single-user local tool. `phase1_runner.py` and render subprocesses inherit `os.environ`; `claude_call()` already strips `CLAUDECODE`. No realistic attack path for this tool's threat model.
+- **Path traversal via EXTRA_SCAN_DIRS** — inapplicable; the "attacker" with write access to `.env` is the user. Fingerprinting output is compact stats, not file contents.
+- **Codex CWD paths in LLM payload** — legitimate privacy note. `collect_codex_activity()` extracts `<cwd>` tags from session JSONL and includes them in `summary["cw"]`, which is sent to the Phase 2 prompt. Documented in README.
+
+### Documentation additions (README.md)
+
+1. **Privacy note** under Limitations & Roadmap: explains that absolute paths (project dirs, Codex CWDs) are included in the LLM prompt by design, and points to `INCLUDE_SOURCE_PAYLOAD=false` (default) for output-file control.
+2. **Heuristic disclaimer** on `.forked-work-modified`: clarifies the attribution inference is best-effort and that the generated `.forked-work` file should be reviewed before running the report.
+
+### Benchmarks
+
+- `pytest tests/ -q`: **34 passed in 0.42s** (no regressions)
+
+---
+
 *End of Build History*

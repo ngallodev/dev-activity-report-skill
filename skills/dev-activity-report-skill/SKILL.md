@@ -23,15 +23,15 @@ This copies the example if needed, attempts auto-fill from environment, and prom
 
 | Key | Default | Notes |
 |---|---|---|
-| `APPS_DIR` | `/lump/apps` | primary projects root |
-| `EXTRA_SCAN_DIRS` | `/usr/local/lib/mariadb` | space/comma separated |
+| `APPS_DIR` | `~/projects` | primary projects root |
+| `EXTRA_SCAN_DIRS` | _(blank)_ | space/comma separated |
 | `CODEX_HOME` | `~/.codex` | |
 | `CLAUDE_HOME` | `~/.claude` | |
 | `REPORT_OUTPUT_DIR` | `~` | |
 | `REPORT_FILENAME_PREFIX` | `dev-activity-report` | |
 | `REPORT_OUTPUT_FORMATS` | `md,html` | comma-separated (JSON always) |
 | `INCLUDE_SOURCE_PAYLOAD` | `false` | include compact payload in JSON |
-| `RESUME_HEADER` | `ngallodev Software, Jan 2025 – Present` | |
+| `RESUME_HEADER` | `Your Name Software, Jan 2025 – Present` | |
 | `ALLOWED_FILE_EXTS` | `.py,.ts,.js,.tsx,.cs,.csproj,.md,.txt,.json,.toml,.yaml,.yml,.sql,.html,.css,.sh` | used for non-git hashing |
 | `INSIGHTS_REPORT_PATH` | `~/.claude/usage-data/report.html` | fingerprint exception |
 | `PHASE1_MODEL` | `haiku` | Bash subagent |
