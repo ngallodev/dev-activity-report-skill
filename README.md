@@ -348,6 +348,24 @@ For `.forked-work-modified`, the next scan will inspect git log, diffs, and file
 
 Once projects are cached, re-running the skill only re-analyzes projects with new commits or modified files. Typical warm-scan cost is ~$0.031.
 
+### Thorough refresh (full re-evaluation prep)
+
+If you want a "start fresh" pass across all configured roots, use:
+
+```bash
+# Dry-run (preview actions)
+python3 skills/dev-activity-report-skill/scripts/thorough_refresh.py
+
+# Apply refresh:
+# - clear skill + project cache files
+# - promote .forked-work -> .forked-work-modified when missing
+# - clear .not-my-work on forked repos so they can be re-evaluated
+python3 skills/dev-activity-report-skill/scripts/thorough_refresh.py --confirm
+
+# Most aggressive reset (also clear skips and all not-my-work markers)
+python3 skills/dev-activity-report-skill/scripts/thorough_refresh.py --confirm --clear-skip --clear-not-my-work-all
+```
+
 ---
 
 ## File Reference

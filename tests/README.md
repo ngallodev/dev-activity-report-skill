@@ -43,6 +43,14 @@ A token-efficient, focused test suite covering the most fragile and critical par
 - Partial JSON handling
 - Subprocess crash handling (phase1, claude CLI, render)
 
+### `test_prompt_parsing_and_refresh.py` - Parser + Refresh Coverage
+**Purpose**: Verify robust Phase 2 JSON parsing and thorough-refresh planning.
+
+- Phase 2 parser accepts fenced JSON and wrapped output
+- Phase 2 parser rejects invalid top-level JSON shapes
+- Thorough refresh root resolution behavior
+- Thorough refresh marker/cache action planning
+
 ### `test_shell_integration.sh` - True E2E Tests
 **Purpose**: Actual script execution with real filesystem.
 
@@ -101,8 +109,9 @@ Shared fixtures in `tests/fixtures/__init__.py`:
 | test_integration_pipeline.py | 10 |
 | test_contracts_and_caching.py | 11 |
 | test_failure_modes.py | 10 |
+| test_prompt_parsing_and_refresh.py | 7 |
 | test_shell_integration.sh | 5 |
-| **Total** | **~36** |
+| **Total** | **~43** |
 
 ## Known Limitations
 

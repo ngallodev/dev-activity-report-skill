@@ -1690,4 +1690,33 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+## Build 22 — Thorough Refresh Utility + Parser/Reset Test Coverage (2026-02-18)
+
+**What happened**: Added a dedicated `thorough_refresh.py` reset utility for full re-evaluation prep and expanded test coverage for both Phase 2 JSON parser hardening and refresh planning logic.
+
+### Utility added
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/thorough_refresh.py` | New reset script with dry-run/apply modes; clears cache files across skill/installed-skill/project roots; promotes `.forked-work` to `.forked-work-modified`; supports optional clearing of `.skip-for-now` and `.not-my-work` markers |
+
+### Documentation updates
+
+| File | Change |
+|------|--------|
+| `README.md` | Added "Thorough refresh" section with dry-run/apply command examples and aggressive reset mode |
+| `tests/README.md` | Added coverage notes for parser/refresh tests and updated test counts |
+
+### Tests added
+
+| File | Coverage |
+|------|----------|
+| `tests/test_prompt_parsing_and_refresh.py` | Validates `parse_llm_json_output()` plain/fenced/wrapped JSON behavior and rejection of invalid top-level shapes; validates `thorough_refresh.py` root resolution and marker/cache planning logic |
+
+### Benchmarks
+
+- `pytest tests/ -q`: **41 passed in 0.35s**
+
+---
+
 *End of Build History*
