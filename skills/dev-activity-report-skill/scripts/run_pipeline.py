@@ -258,6 +258,43 @@ def normalize_sections(sections: dict) -> dict:
     return sections
 
 
+def parse_llm_json_output(raw_text: str) -> dict:
+    """Parse JSON object from LLM output, tolerating markdown code fences."""
+    decoder = json.JSONDecoder()
+    text = (raw_text or "").strip()
+    candidates = [text]
+
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        candidates.insert(0, "\n".join(lines).strip())
+
+    last_err: json.JSONDecodeError | None = None
+    for candidate in candidates:
+        chunk = candidate.strip()
+        for pos in (0, chunk.find("{"), chunk.find("[")):
+            if pos < 0:
+                continue
+            snippet = chunk[pos:].lstrip()
+            try:
+                obj, end = decoder.raw_decode(snippet)
+            except json.JSONDecodeError as exc:
+                last_err = exc
+                continue
+            if snippet[end:].strip():
+                continue
+            if not isinstance(obj, dict):
+                raise json.JSONDecodeError("Top-level JSON must be an object", snippet, 0)
+            return obj
+
+    if last_err:
+        raise last_err
+    raise json.JSONDecodeError("No JSON object found in model output", text, 0)
+
+
 # ── Claude CLI helper ─────────────────────────────────────────────────────────
 def claude_call(
     prompt: str,
@@ -702,7 +739,7 @@ def run(
 
     # Parse Phase 2 JSON and write structured output
     try:
-        phase2_obj = json.loads(report_text)
+        phase2_obj = parse_llm_json_output(report_text)
     except json.JSONDecodeError as exc:
         print(f"Phase 2 output was not valid JSON: {exc}", file=sys.stderr)
         return 1

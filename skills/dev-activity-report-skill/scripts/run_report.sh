@@ -304,7 +304,12 @@ from pathlib import Path
 
 skill_dir = Path(os.environ["SKILL_DIR"])
 sys.path.insert(0, str(skill_dir / "scripts"))
-from run_pipeline import expand_compact_payload, build_source_summary, normalize_sections
+from run_pipeline import (
+    expand_compact_payload,
+    build_source_summary,
+    normalize_sections,
+    parse_llm_json_output,
+)
 
 phase1_out = Path(os.environ["PHASE1_OUT"])
 phase1_cache = skill_dir / ".phase1-cache.json"
@@ -324,7 +329,7 @@ compact = phase1_payload.get("data", phase1_payload)
 expanded = expand_compact_payload(compact)
 source_summary = build_source_summary(expanded)
 
-sections_obj = json.loads(phase2_out.read_text())
+sections_obj = parse_llm_json_output(phase2_out.read_text())
 if "sections" in sections_obj:
     sections = sections_obj.get("sections") or {}
     render_hints = sections_obj.get("render_hints") or {}

@@ -1658,4 +1658,36 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+## Build 21 — Phase 2 JSON Parser Hardening for Fenced LLM Output (2026-02-18)
+
+**What happened**: Hardened Phase 2 JSON parsing to tolerate markdown-wrapped JSON (` ```json ... ``` `) and minor wrapper text around the JSON object. This fixes report failures when the model returns valid JSON content inside code fences.
+
+### Root cause
+
+- Phase 2 model responses were occasionally returned as fenced markdown:
+  - First line: ```` ```json ````
+  - Last line: ```` ``` ````
+- Existing parser used strict `json.loads(report_text)`, which fails when fences are present.
+- The JSON payload itself remained valid once fences were removed.
+
+### Changes
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Added `parse_llm_json_output()` that accepts fenced JSON and extracts top-level JSON object before validation |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Phase 2 parse path now uses `parse_llm_json_output(report_text)` instead of direct `json.loads(report_text)` |
+| `skills/dev-activity-report-skill/scripts/run_report.sh` | Phase 2.5 assembly now imports and reuses `parse_llm_json_output()` for consistency with pipeline behavior |
+
+### Benchmarks
+
+- `pytest tests/ -q`: **34 passed in 0.38s**
+- Full foreground run:
+  - `python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground`
+  - **Succeeded**; total **48.28s** (`p1=0.39s`, `p1.5=9.70s`, `p2=38.09s`)
+  - Outputs:
+    - `/home/nate/dev-activity-report-20260218T080136Z.json`
+    - `/home/nate/dev-activity-report-20260218T080136Z.md`
+
+---
+
 *End of Build History*
