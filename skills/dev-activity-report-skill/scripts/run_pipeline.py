@@ -361,8 +361,11 @@ def call_phase2(
 ) -> tuple[str, dict[str, int]]:
     resume_header = env.get("RESUME_HEADER", "Your Name, Jan 2025 – Present")
     rules = PHASE2_RULES.format(resume_header=resume_header)
+    prefix = (env.get("PHASE2_PROMPT_PREFIX") or "").strip()
+    if prefix:
+        prefix = f"{prefix}\n\n"
     prompt = (
-        f"{rules}\n\n"
+        f"{prefix}{rules}\n\n"
         f"Summary JSON (compact):\n{compact_json}\n\n"
         f"Draft bullets:\n{draft_text}"
     )
@@ -391,9 +394,13 @@ def call_phase15_claude(
     claude_bin: str,
 ) -> tuple[str, dict[str, int]]:
     model = env.get("PHASE15_MODEL", "haiku")
+    prefix = (env.get("PHASE15_PROMPT_PREFIX") or "").strip()
+    if prefix:
+        prefix = f"{prefix}\n\n"
     prompt = PHASE15_PROMPT_TMPL.format(
         summary_json=json.dumps(summary, separators=(",", ":"))
     )
+    prompt = f"{prefix}{prompt}"
     timeout = int(env.get("PHASE15_TIMEOUT", 180))
     return claude_call(prompt, model, claude_bin, timeout=timeout)
 

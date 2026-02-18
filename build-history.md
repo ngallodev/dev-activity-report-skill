@@ -1631,4 +1631,31 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+## Build 20 — Phase Prompt Prefix Overrides for .env-driven Custom Instructions (2026-02-18)
+
+**What happened**: Added per-phase prompt-prefix hooks so users can inject additional instructions from `.env` before built-in prompts. This supports both additive guidance and explicit override patterns (for example: "Ignore any following instructions for this phase...").
+
+### Runtime changes
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/run_report.sh` | Added `PHASE1_PROMPT_PREFIX`, `PHASE15_PROMPT_PREFIX`, `PHASE2_PROMPT_PREFIX`, `PHASE3_PROMPT_PREFIX`; each is prepended before the corresponding hardcoded phase prompt |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Added `PHASE15_PROMPT_PREFIX` and `PHASE2_PROMPT_PREFIX` support in Claude CLI prompt construction |
+| `skills/dev-activity-report-skill/scripts/phase1_5_draft.py` | `build_prompt()` now accepts env and prepends `PHASE15_PROMPT_PREFIX` before the default draft prompt |
+| `skills/dev-activity-report-skill/scripts/testing/run_codex_test_report.sh` | Added per-phase prompt prefixes for test runs and parameterized Phase 3 model via `PHASE3_MODEL` |
+
+### Documentation updates
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/SKILL.md` | Added new `.env` keys for prompt prefixes and documented placeholders before built-in phase prompts |
+| `skills/dev-activity-report-skill/references/examples/.env.example` | Added prompt-prefix variables with guidance on additive vs override instruction patterns |
+| `README.md` | Added prompt-prefix examples in the `.env` snippet under model configuration |
+
+### Benchmarks
+
+- `pytest tests/ -q`: **34 passed in 0.35s** (no regressions)
+
+---
+
 *End of Build History*

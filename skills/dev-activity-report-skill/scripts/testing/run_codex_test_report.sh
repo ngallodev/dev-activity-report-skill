@@ -7,6 +7,11 @@ CODEX_BIN="${CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
 PHASE1_MODEL="gpt-5.1-codex-mini"
 PHASE15_MODEL="$PHASE1_MODEL"
 PHASE2_MODEL="gpt-5.3-codex"
+PHASE3_MODEL="${PHASE3_MODEL:-gpt-5.1-codex-mini}"
+PHASE1_PROMPT_PREFIX="${PHASE1_PROMPT_PREFIX:-}"
+PHASE15_PROMPT_PREFIX="${PHASE15_PROMPT_PREFIX:-}"
+PHASE2_PROMPT_PREFIX="${PHASE2_PROMPT_PREFIX:-}"
+PHASE3_PROMPT_PREFIX="${PHASE3_PROMPT_PREFIX:-}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 PHASE1_LOG="$WORKDIR/codex-phase1-$TIMESTAMP.log"
 PHASE15_TEMP="$WORKDIR/codex-phase1_5-last-message.txt"
@@ -25,6 +30,7 @@ check_codex
 
 echo "== Phase 1 ($PHASE1_MODEL): data gathering ==" | tee "$PHASE1_LOG"
 "$CODEX_BIN" exec -m "$PHASE1_MODEL" --sandbox workspace-write - <<EOF | tee -a "$PHASE1_LOG"
+${PHASE1_PROMPT_PREFIX}
 Please run \`python3 $SKILL_DIR/scripts/phase1_runner.py\` and print only the JSON output produced by the script. After completing, mention the fingerprint stored in $SKILL_DIR/.phase1-cache.json.
 EOF
 
@@ -33,12 +39,14 @@ echo "Phase 1 complete. Fingerprint file (if created) is: $SKILL_DIR/.phase1-cac
 
 echo "== Phase 1.5 ($PHASE15_MODEL): draft =="
 "$CODEX_BIN" exec -m "$PHASE15_MODEL" --sandbox workspace-write --output-last-message "$PHASE15_TEMP" - <<EOF
+${PHASE15_PROMPT_PREFIX}
 Use advanced reasoning. Read the JSON blob at $SKILL_DIR/.phase1-cache.json.
 Output a rough draft only: 5–8 bullets + a 2-sentence overview. No extra commentary.
 EOF
 
 echo "== Phase 2 ($PHASE2_MODEL): analysis/report =="
 "$CODEX_BIN" exec -m "$PHASE2_MODEL" --sandbox workspace-write --output-last-message "$PHASE2_TEMP" - <<EOF
+${PHASE2_PROMPT_PREFIX}
 You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Read the JSON blob stored at $SKILL_DIR/.phase1-cache.json and the draft at $PHASE15_TEMP, then produce:
 
 - Resume Bullets (5-8 bullets, achievement-oriented, past tense,
@@ -65,8 +73,9 @@ else
   exit 1
 fi
 
-echo "== Phase 3 (gpt-5.1-codex-mini): cache verification =="
-"$CODEX_BIN" exec -m gpt-5.1-codex-mini --sandbox workspace-write - <<EOF | tee "$PHASE3_LOG"
+echo "== Phase 3 ($PHASE3_MODEL): cache verification =="
+"$CODEX_BIN" exec -m "$PHASE3_MODEL" --sandbox workspace-write - <<EOF | tee "$PHASE3_LOG"
+${PHASE3_PROMPT_PREFIX}
 Please run the following Python command:
 
 python3 - <<'PY'

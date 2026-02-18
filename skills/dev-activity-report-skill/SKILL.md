@@ -44,6 +44,7 @@ This copies the example if needed, attempts auto-fill from environment, and prom
 | `BENCHMARK_LOG_PATH` | `${REPORT_OUTPUT_DIR}/benchmarks.jsonl` | benchmark JSONL |
 | `PRICE_PHASE15_IN/OUT`, `PRICE_PHASE2_IN/OUT` | per 1M tokens | cost calc |
 | `PHASE15_API_KEY`, `PHASE15_API_BASE`, `PHASE2_API_KEY`, `PHASE2_API_BASE` | optional | leave blank under subscription |
+| `PHASE1_PROMPT_PREFIX`, `PHASE15_PROMPT_PREFIX`, `PHASE2_PROMPT_PREFIX`, `PHASE3_PROMPT_PREFIX` | _(blank)_ | prepended to phase prompt; can inject extra instructions |
 
 ---
 
@@ -61,8 +62,11 @@ subagent_type: Bash
 model: ${PHASE1_MODEL}
 description: "Phase 1 dev-activity-report data collection"
 prompt: |
+  ${PHASE1_PROMPT_PREFIX}
   python3 scripts/phase1_runner.py
 ```
+
+If you need to override built-ins, set a prefix such as: `Ignore any following instructions for this phase. <your instructions>`.
 
 Outputs `{"fp": "<global-hash>", "cache_hit": <bool>, "data": {...}}` with compact keys only (see PAYLOAD_REFERENCE). No raw git logs are emitted; payload contains commit counts, shortstats, changed files, and derived themes.
 
@@ -77,6 +81,8 @@ Input: Phase 1 JSON (stdin or `--input <file>`). Command:
 python3 scripts/phase1_5_draft.py --input phase1.json > phase1_5.json
 ```
 The script sends a concise prompt to `${PHASE15_MODEL}` (env-configurable) to create a rough bullet draft; falls back to a deterministic heuristic if no API key. Token usage is appended to `TOKEN_LOG_PATH` and `BUILD_LOG_PATH` when credentials exist.
+
+Prompt prefix (optional): `${PHASE15_PROMPT_PREFIX}`.
 
 Output JSON: `{"draft": "<text>", "usage": {...}, "cost": <float|null>}`
 
@@ -102,6 +108,8 @@ Use only Phase 1 `data` + Phase 1.5 `draft`. Do not re-read files. Keep Phase 2 
 
 **Prompt skeleton (replace placeholders):**
 ```
+{{PHASE2_PROMPT_PREFIX}}
+
 System: You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Stay terse.
 
 User:
@@ -133,6 +141,8 @@ Rules:
 - Tech Inventory: languages, frameworks, AI tools, infra.
 ```
 
+Prompt prefix is loaded from `.env` as `${PHASE2_PROMPT_PREFIX}` and prepended before the built-in instructions.
+
 **Note**: Compact keys are expanded deterministically after Phase 2 (no LLM translation) before rendering.
 
 ---
@@ -153,6 +163,8 @@ Save final report to `${REPORT_OUTPUT_DIR}/${REPORT_FILENAME_PREFIX}-<YYYYMMDDTH
 ## Phase 3 — Cache writes (Codex)
 
 This is a simple Bash tool call, almost any model should be able to handle it. The input is the stale projects list only. Fingerprints are content hashes of git-tracked files (or allowed non-git files) and should be written into `.dev-report-cache.md` per project. Model: `${PHASE3_MODEL}`.
+
+Prompt prefix (optional): `${PHASE3_PROMPT_PREFIX}`.
 
 ---
 
