@@ -1210,6 +1210,50 @@ Benchmark records stored in `references/benchmarks.jsonl`.
 ### Tests / Benchmarks
 - Not run (config and prompt default refresh only).
 
+## Build 24 — Insights Quote Forwarding + Linked Section Rendering (2026-02-18)
+
+**What happened**: Implemented end-to-end insights propagation so quotes and section references survive all phases, are captured in report JSON, and render into Markdown/HTML with source links. Added optional renderer link-resolution for `file://` section URLs.
+
+### Phase handoff and schema changes
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/phase1_runner.py` | Phase 1 payload now includes `insm` metadata (`log_path`, `report_path`) alongside `ins` lines so insights source details pass forward explicitly |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | `expand_compact_payload()` and `build_source_summary()` now carry `insights_meta` from compact payload |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Phase 2 JSON template (`PHASE2_RULES`) now expects optional `sections.insights_quotes[]` entries with quote + source fields |
+| `tests/contracts/phase2_output.schema.json` | Added optional `sections.insights_quotes` contract with `quote`, `source_path`, `source_link`, `section_id`, `section_title` |
+
+### Insights extraction + processing
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Added `extract_insights_quote_entries()` for structured quote extraction (with source link) from `INSIGHTS_REPORT_PATH` |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | `extract_insights_quotes()` now wraps structured entries and keeps compatibility with existing `(block, source)` callers |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | `parse_insights_sections()` parses phase-1 `ins` markdown tail into section objects (`id`, `title`, `entry_date`, `content`, `link`, `report_link`) |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Final `report_obj` now includes top-level `insights` block with `source`, `sections`, and merged `quotes` (Phase 2 + extracted fallback) |
+| `skills/dev-activity-report-skill/scripts/run_pipeline.py` | Phase 2 prompt now includes a machine-readable insights-quote JSON context block for `sections.insights_quotes` population |
+
+### Renderer support for linked insights sections
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/render_report.py` | Added insights rendering for Markdown and HTML (`## Insights` / `article("Insights", ...)`) |
+| `skills/dev-activity-report-skill/scripts/render_report.py` | Added `file://` source-link resolution helpers; when section content is missing, renderer attempts to load section content from linked local files |
+| `skills/dev-activity-report-skill/scripts/render_report.py` | Insights rendering now includes source links plus quote attribution output |
+
+### Test coverage additions
+
+| File | Coverage |
+|------|----------|
+| `tests/test_prompt_parsing_and_refresh.py` | Added tests for structured quote extraction (`extract_insights_quote_entries`) and section parsing (`parse_insights_sections`) |
+| `tests/test_failure_modes.py` | Added renderer regression test verifying insights quotes/sections are emitted in markdown |
+
+### Benchmarks
+
+- `pytest -q tests/test_prompt_parsing_and_refresh.py tests/test_failure_modes.py`: **23 passed in 1.02s**
+- `pytest -q tests`: **47 passed in 1.24s**
+- `python3 -m py_compile skills/dev-activity-report-skill/scripts/run_pipeline.py skills/dev-activity-report-skill/scripts/render_report.py skills/dev-activity-report-skill/scripts/phase1_runner.py`: **pass (0 errors)**
+
 ---
 
 *End of Build History*
@@ -1758,6 +1802,47 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 ### Benchmarks
 
 - `pytest tests/ -q`: **44 passed in 1.32s**
+
+---
+
+## Build 24 — Consolidator JSON-First Mode + Aggregate HTML Output (2026-02-18)
+
+**What happened**: Reworked `consolidate_reports.py` to prefer JSON source reports by default and emit aggregate JSON/Markdown/HTML outputs from the shared report schema. Added explicit legacy Markdown-source mode for users who request it.
+
+### Consolidator behavior changes
+
+| File | Change |
+|------|--------|
+| `skills/dev-activity-report-skill/scripts/consolidate_reports.py` | Default source mode now `auto` (prefer JSON reports if present) |
+| `skills/dev-activity-report-skill/scripts/consolidate_reports.py` | Added `--source-format` (`auto|json|md`) |
+| `skills/dev-activity-report-skill/scripts/consolidate_reports.py` | Added JSON source globs (`--report-json-glob`, `--test-report-json-glob`) |
+| `skills/dev-activity-report-skill/scripts/consolidate_reports.py` | Added `--formats` output control; default emits `json,md,html` |
+| `skills/dev-activity-report-skill/scripts/consolidate_reports.py` | Aggregate HTML is now generated by default (same stem as output path) |
+| `skills/dev-activity-report-skill/scripts/consolidate_reports.py` | JSON merge path deduplicates sections and carries `insights.sections`/`insights.quotes` into aggregate object |
+| `skills/dev-activity-report-skill/scripts/consolidate_reports.py` | Markdown-source path remains available for explicit fallback requests |
+
+### Documentation/config updates
+
+| File | Change |
+|------|--------|
+| `README.md` | Updated consolidate section to describe JSON-first behavior and aggregate HTML output |
+| `skills/dev-activity-report-skill/references/examples/.env.example` | Added `DAR_SOURCE_FORMAT`, JSON globs, and `DAR_AGGREGATE_FORMATS` |
+
+### Tests added
+
+| File | Coverage |
+|------|----------|
+| `tests/test_consolidate_reports.py` | JSON merge dedupe + insights preservation; output writer emits HTML alongside JSON/MD |
+
+### Benchmarks
+
+- `pytest tests/ -q`: **49 passed in 1.30s**
+- Consolidator smoke run:
+  - `python3 skills/dev-activity-report-skill/scripts/consolidate_reports.py --report-root /home/nate --output /home/nate/dev-activity-report-aggregate.md --source-format auto --formats json,md,html`
+  - Output files:
+    - `/home/nate/dev-activity-report-aggregate.json`
+    - `/home/nate/dev-activity-report-aggregate.md`
+    - `/home/nate/dev-activity-report-aggregate.html`
 
 ---
 

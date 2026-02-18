@@ -110,8 +110,9 @@ Shared fixtures in `tests/fixtures/__init__.py`:
 | test_contracts_and_caching.py | 11 |
 | test_failure_modes.py | 10 |
 | test_prompt_parsing_and_refresh.py | 10 |
+| test_consolidate_reports.py | 2 |
 | test_shell_integration.sh | 5 |
-| **Total** | **~44+** |
+| **Total** | **~46+** |
 
 ## Known Limitations
 

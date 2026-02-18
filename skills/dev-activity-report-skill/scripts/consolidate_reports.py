@@ -1,87 +1,271 @@
 #!/usr/bin/env python3
 """
-Consolidate dev-activity-report outputs and codex test reports into a single
-deduplicated document grouped by normalized headings.
+Consolidate dev-activity-report outputs into aggregate JSON/Markdown/HTML.
 
-Uncategorized headings are collected into an "Other" bucket rather than
-silently dropped, so no content is lost.
+Default behavior:
+- Prefer JSON source reports when available
+- Fall back to Markdown source only when requested (or when no JSON exists)
+- Emit aggregate JSON + Markdown + HTML by default
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import tarfile
 import time
-from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
+
+from render_report import render_html, render_markdown
 
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
-# Canonical section order in the output document
-SECTION_ORDER = [
-    "Resume Bullets",
-    "LinkedIn Summary",
-    "Most Resume-Worthy Items",
-    "Hiring Manager Highlights",
-    "Scan Summary",
-    "Original Work Projects",
-    "Forked & Modified Projects",
-    "Technical Problems Solved",
-    "AI-Assisted Development Workflows",
-    "Codex Activity",
-    "AI Workflow Patterns",
-    "Findings",
-    "Tech Inventory",
-    "Timeline",
-    "Other",
-]
-
 
 def normalize_heading(title: str) -> str:
-    """Map an arbitrary heading title to a canonical section name.
-
-    Unknown headings return "Other" so no content is silently discarded.
-    """
-    t = title.lower()
+    t = title.lower().strip()
     if "resume bullet" in t:
-        return "Resume Bullets"
-    if "linkedin summary" in t:
-        return "LinkedIn Summary"
-    if "most resume-worthy" in t:
-        return "Most Resume-Worthy Items"
-    # "hiring manager" (space) OR "hiring-manager" (hyphen)
-    if "hiring" in t and ("manager" in t or "highlight" in t):
-        return "Hiring Manager Highlights"
-    if "scan summary" in t:
-        return "Scan Summary"
-    if "original work project" in t:
-        return "Original Work Projects"
-    if "forked" in t:
-        return "Forked & Modified Projects"
-    if "technical problem" in t:
-        return "Technical Problems Solved"
-    if "ai-assisted development" in t:
-        return "AI-Assisted Development Workflows"
-    if "codex activity" in t:
-        return "Codex Activity"
-    if "ai workflow pattern" in t:
-        return "AI Workflow Patterns"
-    if t.strip() == "findings" or t.startswith("findings"):
-        return "Findings"
-    # "tech inventory", "technology inventory", "short tech inventory"
-    if "tech inventory" in t or "technology inventory" in t:
-        return "Tech Inventory"
-    # "timeline", "5-row timeline", "timeline (most recent first)", etc.
+        return "resume_bullets"
+    if "linkedin" in t:
+        return "linkedin"
+    if "highlight" in t or "most resume-worthy" in t:
+        return "highlights"
     if "timeline" in t:
-        return "Timeline"
-    return "Other"
+        return "timeline"
+    if "tech inventory" in t or "technology inventory" in t:
+        return "tech_inventory"
+    if "recommend" in t:
+        return "recommendations"
+    if "overview" in t:
+        return "overview"
+    return "key_changes"
 
 
-def extract_entries(lines: list[str]) -> list[str]:
-    """Parse body lines into discrete entries (bullets, paragraphs, table rows)."""
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _strip_bullet(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r"^[-*+]\s+", "", text)
+    text = re.sub(r"^\d+\.\s+", "", text)
+    return text.strip()
+
+
+def _append_unique(out: list[Any], seen: set[str], item: Any, key: str) -> None:
+    if key in seen:
+        return
+    seen.add(key)
+    out.append(item)
+
+
+def merge_json_reports(report_paths: list[Path], title: str) -> dict[str, Any]:
+    sections: dict[str, Any] = {
+        "overview": {"bullets": []},
+        "key_changes": [],
+        "recommendations": [],
+        "resume_bullets": [],
+        "linkedin": {"sentences": []},
+        "highlights": [],
+        "timeline": [],
+        "tech_inventory": {
+            "languages": [],
+            "frameworks": [],
+            "ai_tools": [],
+            "infra": [],
+        },
+    }
+    insights: dict[str, Any] = {"source": {}, "sections": [], "quotes": []}
+
+    seen_overview: set[str] = set()
+    seen_key_changes: set[str] = set()
+    seen_recs: set[str] = set()
+    seen_resume: set[str] = set()
+    seen_linkedin: set[str] = set()
+    seen_highlights: set[str] = set()
+    seen_timeline: set[str] = set()
+    seen_tech: dict[str, set[str]] = {k: set() for k in sections["tech_inventory"].keys()}
+    seen_insight_sections: set[str] = set()
+    seen_quotes: set[str] = set()
+
+    for path in report_paths:
+        try:
+            obj = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        sec = obj.get("sections") or {}
+
+        for bullet in _as_list((sec.get("overview") or {}).get("bullets")):
+            if isinstance(bullet, str) and bullet.strip():
+                _append_unique(sections["overview"]["bullets"], seen_overview, bullet.strip(), bullet.strip())
+
+        for item in _as_list(sec.get("key_changes")):
+            if not isinstance(item, dict):
+                continue
+            title_key = str(item.get("title", "")).strip()
+            bullets = [str(b).strip() for b in _as_list(item.get("bullets")) if str(b).strip()]
+            key = f"{title_key}|{'|'.join(bullets)}"
+            _append_unique(
+                sections["key_changes"],
+                seen_key_changes,
+                {
+                    "title": title_key or "Change",
+                    "project_id": item.get("project_id") or None,
+                    "bullets": bullets,
+                    "tags": [str(t).strip() for t in _as_list(item.get("tags")) if str(t).strip()],
+                },
+                key,
+            )
+
+        for item in _as_list(sec.get("recommendations")):
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text", "")).strip()
+            if not text:
+                continue
+            prio = str(item.get("priority", "")).strip().lower() or "low"
+            key = f"{text}|{prio}"
+            _append_unique(
+                sections["recommendations"],
+                seen_recs,
+                {
+                    "text": text,
+                    "priority": prio if prio in {"low", "medium", "high"} else "low",
+                    "evidence_project_ids": [str(e).strip() for e in _as_list(item.get("evidence_project_ids")) if str(e).strip()],
+                },
+                key,
+            )
+
+        for item in _as_list(sec.get("resume_bullets")):
+            text = str(item.get("text", "")).strip() if isinstance(item, dict) else str(item).strip()
+            if not text:
+                continue
+            _append_unique(
+                sections["resume_bullets"],
+                seen_resume,
+                {"text": text, "evidence_project_ids": [] if not isinstance(item, dict) else [str(e).strip() for e in _as_list(item.get("evidence_project_ids")) if str(e).strip()]},
+                text,
+            )
+
+        for sentence in _as_list((sec.get("linkedin") or {}).get("sentences")):
+            if isinstance(sentence, str) and sentence.strip():
+                _append_unique(sections["linkedin"]["sentences"], seen_linkedin, sentence.strip(), sentence.strip())
+
+        for item in _as_list(sec.get("highlights")):
+            if not isinstance(item, dict):
+                continue
+            title_val = str(item.get("title", "")).strip()
+            rationale = str(item.get("rationale", "")).strip()
+            if not title_val:
+                continue
+            key = f"{title_val}|{rationale}"
+            _append_unique(
+                sections["highlights"],
+                seen_highlights,
+                {
+                    "title": title_val,
+                    "rationale": rationale,
+                    "evidence_project_ids": [str(e).strip() for e in _as_list(item.get("evidence_project_ids")) if str(e).strip()],
+                },
+                key,
+            )
+
+        for item in _as_list(sec.get("timeline")):
+            if not isinstance(item, dict):
+                continue
+            date = str(item.get("date", "")).strip()
+            event = str(item.get("event", "")).strip()
+            if not (date or event):
+                continue
+            key = f"{date}|{event}"
+            _append_unique(
+                sections["timeline"],
+                seen_timeline,
+                {"date": date, "event": event, "project_ids": [str(p).strip() for p in _as_list(item.get("project_ids")) if str(p).strip()]},
+                key,
+            )
+
+        tech = sec.get("tech_inventory") or {}
+        for k in ("languages", "frameworks", "ai_tools", "infra"):
+            for entry in _as_list(tech.get(k)):
+                s = str(entry).strip()
+                if not s or s in seen_tech[k]:
+                    continue
+                seen_tech[k].add(s)
+                sections["tech_inventory"][k].append(s)
+
+        ins = obj.get("insights") or {}
+        if not insights["source"] and isinstance(ins.get("source"), dict):
+            insights["source"] = ins.get("source")
+
+        for sec_item in _as_list(ins.get("sections")):
+            if not isinstance(sec_item, dict):
+                continue
+            sid = str(sec_item.get("section_id", "")).strip()
+            title_val = str(sec_item.get("title", "")).strip()
+            content = [str(c).strip() for c in _as_list(sec_item.get("content")) if str(c).strip()]
+            key = sid or title_val
+            if not key:
+                continue
+            if key not in seen_insight_sections:
+                seen_insight_sections.add(key)
+                insights["sections"].append(
+                    {
+                        "section_id": sid,
+                        "title": title_val or "Insights",
+                        "link": sec_item.get("link", ""),
+                        "content": content,
+                    }
+                )
+                continue
+            for existing in insights["sections"]:
+                if (existing.get("section_id") or existing.get("title")) == key:
+                    existing_content = existing.get("content") or []
+                    for line in content:
+                        if line and line not in existing_content:
+                            existing_content.append(line)
+                    existing["content"] = existing_content
+                    break
+
+        for q in _as_list(ins.get("quotes")):
+            if not isinstance(q, dict):
+                continue
+            quote = str(q.get("quote", "")).strip()
+            if not quote or quote in seen_quotes:
+                continue
+            seen_quotes.add(quote)
+            insights["quotes"].append(
+                {
+                    "quote": quote,
+                    "source_path": q.get("source_path", ""),
+                    "source_link": q.get("source_link", ""),
+                    "section_id": q.get("section_id", ""),
+                    "section_title": q.get("section_title", ""),
+                }
+            )
+
+    return {
+        "schema_version": "dev-activity-report.v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "resume_header": title,
+        "run": {"consolidated_reports": len(report_paths)},
+        "source_summary": {"reports_consolidated": len(report_paths)},
+        "sections": sections,
+        "insights": insights,
+        "render_hints": {"preferred_outputs": ["md", "html"], "style": "concise", "tone": "professional"},
+        "source_payload": None,
+    }
+
+
+def _md_section_entries(lines: list[str]) -> list[str]:
     entries: list[str] = []
     para: list[str] = []
 
@@ -95,10 +279,7 @@ def extract_entries(lines: list[str]) -> list[str]:
 
     for line in lines:
         stripped = line.strip()
-        if not stripped:
-            flush_para()
-            continue
-        if stripped == "---":
+        if not stripped or stripped == "---":
             flush_para()
             continue
         if line.lstrip().startswith("|"):
@@ -109,132 +290,123 @@ def extract_entries(lines: list[str]) -> list[str]:
             flush_para()
             entries.append(stripped)
             continue
-        if re.match(r"^\s*\*\*.*\*\*\s*$", line):
-            flush_para()
-            entries.append(stripped)
-            continue
         para.append(line)
     flush_para()
     return entries
 
 
-def _detect_table_header(entries: list[str]) -> list[str] | None:
-    """Return the first two table rows (header + separator) if present."""
-    table_lines = [e for e in entries if e.startswith("|")]
-    if len(table_lines) >= 2:
-        return table_lines[:2]
-    return None
+def merge_md_reports(report_paths: list[Path], title: str) -> dict[str, Any]:
+    report = {
+        "schema_version": "dev-activity-report.v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "resume_header": title,
+        "run": {"consolidated_reports": len(report_paths)},
+        "source_summary": {"reports_consolidated": len(report_paths)},
+        "sections": {
+            "overview": {"bullets": []},
+            "key_changes": [],
+            "recommendations": [],
+            "resume_bullets": [],
+            "linkedin": {"sentences": []},
+            "highlights": [],
+            "timeline": [],
+            "tech_inventory": {"languages": [], "frameworks": [], "ai_tools": [], "infra": []},
+        },
+        "insights": {"source": {}, "sections": [], "quotes": []},
+        "render_hints": {"preferred_outputs": ["md", "html"], "style": "concise", "tone": "professional"},
+        "source_payload": None,
+    }
 
-
-def build_sections(
-    report_paths: list[Path],
-) -> tuple[OrderedDict[str, OrderedDict[str, None]], dict[str, list[str] | None]]:
-    sections: OrderedDict[str, OrderedDict[str, None]] = OrderedDict(
-        (name, OrderedDict()) for name in SECTION_ORDER
-    )
-    # Store one table header row-pair per section (first encountered wins)
-    table_headers: dict[str, list[str] | None] = {name: None for name in SECTION_ORDER}
-
-    def add_entry(section: str, entry: str) -> None:
-        sections[section][entry] = None
-
-    def flush_section(norm: str, body_lines: list[str]) -> None:
-        if not norm:
-            return
-        entries = extract_entries(body_lines)
-        if table_headers[norm] is None:
-            header = _detect_table_header(entries)
-            if header:
-                table_headers[norm] = header
-        for entry in entries:
-            add_entry(norm, entry)
+    seen: dict[str, set[str]] = {
+        "overview": set(),
+        "key_changes": set(),
+        "recommendations": set(),
+        "resume": set(),
+        "linkedin": set(),
+        "highlights": set(),
+        "timeline": set(),
+    }
 
     for path in report_paths:
-        text = path.read_text()
-        lines = text.splitlines()
+        try:
+            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
 
-        # First pass: collect Findings sub-headings (children of Findings section)
-        stack: list[dict[str, object]] = []
-        for line in lines:
-            m = HEADING_RE.match(line)
-            if not m:
-                continue
-            level = len(m.group(1))
-            title = m.group(2).strip()
-            norm = normalize_heading(title)
-            while stack and stack[-1]["level"] >= level:  # type: ignore[operator]
-                stack.pop()
-            parent_norm = stack[-1]["norm"] if stack else None
-            stack.append({"level": level, "title": title, "norm": norm})
-            # Sub-headings inside Findings become bold labels in that section
-            if norm == "Other" and parent_norm == "Findings":
-                add_entry("Findings", f"**{title}**")
-
-        # Second pass: parse section bodies
-        current_norm: str = ""
+        current_norm = ""
         current_lines: list[str] = []
+
+        def flush_section(norm: str, body_lines: list[str]) -> None:
+            if not norm:
+                return
+            entries = _md_section_entries(body_lines)
+            if not entries:
+                return
+            if norm == "resume_bullets":
+                for e in entries:
+                    text = _strip_bullet(e)
+                    if text and text not in seen["resume"]:
+                        seen["resume"].add(text)
+                        report["sections"]["resume_bullets"].append({"text": text, "evidence_project_ids": []})
+            elif norm == "linkedin":
+                for e in entries:
+                    text = _strip_bullet(e)
+                    if text and text not in seen["linkedin"]:
+                        seen["linkedin"].add(text)
+                        report["sections"]["linkedin"]["sentences"].append(text)
+            elif norm == "highlights":
+                for e in entries:
+                    text = _strip_bullet(e)
+                    if text and text not in seen["highlights"]:
+                        seen["highlights"].add(text)
+                        report["sections"]["highlights"].append({"title": text, "rationale": "", "evidence_project_ids": []})
+            elif norm == "timeline":
+                for e in entries:
+                    if e.startswith("|") and not re.match(r"^\|\s*[:\- ]+\|", e):
+                        cells = [c.strip() for c in e.strip("|").split("|")]
+                        if len(cells) >= 2 and cells[0].lower() != "date":
+                            key = f"{cells[0]}|{cells[1]}"
+                            if key not in seen["timeline"]:
+                                seen["timeline"].add(key)
+                                report["sections"]["timeline"].append({"date": cells[0], "event": cells[1], "project_ids": []})
+            elif norm == "recommendations":
+                for e in entries:
+                    text = _strip_bullet(e)
+                    if text and text not in seen["recommendations"]:
+                        seen["recommendations"].add(text)
+                        report["sections"]["recommendations"].append({"text": text, "priority": "low", "evidence_project_ids": []})
+            elif norm == "overview":
+                for e in entries:
+                    text = _strip_bullet(e)
+                    if text and text not in seen["overview"]:
+                        seen["overview"].add(text)
+                        report["sections"]["overview"]["bullets"].append(text)
+            else:
+                title_val = path.name
+                bullets = [
+                    _strip_bullet(e)
+                    for e in entries
+                    if _strip_bullet(e) and _strip_bullet(e) not in seen["key_changes"]
+                ]
+                for b in bullets:
+                    seen["key_changes"].add(b)
+                if bullets:
+                    report["sections"]["key_changes"].append(
+                        {"title": title_val, "project_id": None, "bullets": bullets, "tags": ["legacy-md"]}
+                    )
+
         for line in lines:
             m = HEADING_RE.match(line)
             if m:
                 flush_section(current_norm, current_lines)
-                title = m.group(2).strip()
-                current_norm = normalize_heading(title)
+                current_norm = normalize_heading(m.group(2).strip())
                 current_lines = []
             elif current_norm:
                 current_lines.append(line)
+
         flush_section(current_norm, current_lines)
 
-    # Remove table separator rows and duplicate header rows from entries
-    for sec_name in sections:
-        header_set = set(table_headers.get(sec_name) or [])
-        cleaned: OrderedDict[str, None] = OrderedDict()
-        for entry in sections[sec_name]:
-            if entry.strip() == "---":
-                continue
-            if entry.startswith("|"):
-                if entry in header_set:
-                    continue
-                # Pure separator row like |---|---|
-                if re.match(r"^\|\s*[-: |]+\s*\|?\s*$", entry):
-                    continue
-            cleaned[entry] = None
-        sections[sec_name] = cleaned
-
-    return sections, table_headers
-
-
-def write_output(
-    output_path: Path,
-    sections: OrderedDict[str, OrderedDict[str, None]],
-    table_headers: dict[str, list[str] | None],
-    title: str,
-    source_count: int,
-) -> None:
-    with output_path.open("w") as f:
-        f.write(f"# {title}\n\n")
-        f.write(
-            f"Consolidated from {source_count} report(s). "
-            "Unique entries deduplicated and grouped by section.\n\n"
-        )
-        for sec_name, entries in sections.items():
-            if not entries:
-                continue
-            f.write(f"## {sec_name}\n\n")
-            header = table_headers.get(sec_name)
-            has_table = any(e.startswith("|") for e in entries)
-            if has_table and header:
-                f.write(header[0] + "\n")
-                f.write(header[1] + "\n")
-            for entry in entries:
-                if entry.startswith("|"):
-                    f.write(f"{entry}\n")
-                elif re.match(r"^\s*[-*+]\s+", entry) or re.match(r"^\s*\d+\.\s+", entry):
-                    f.write(f"{entry}\n")
-                elif entry.startswith("**") and entry.endswith("**"):
-                    f.write(f"{entry}\n")
-                else:
-                    f.write(f"{entry}\n\n")
-            f.write("\n")
+    return report
 
 
 def collect_report_paths(
@@ -242,86 +414,124 @@ def collect_report_paths(
     report_root: Path,
     test_glob: str,
     report_glob: str,
-    output_path: Path,
+    output_base: Path,
 ) -> list[Path]:
     paths: list[Path] = []
     if test_root.exists():
         paths.extend(sorted(test_root.glob(test_glob)))
     if report_root.exists():
         paths.extend(sorted(report_root.glob(report_glob)))
-    # Exclude the output file itself if it happens to match a glob
-    resolved_output = output_path.resolve()
-    return [p for p in dict.fromkeys(paths) if p.resolve() != resolved_output]
+
+    excluded = {
+        output_base.resolve(),
+        output_base.with_suffix(".md").resolve(),
+        output_base.with_suffix(".html").resolve(),
+        output_base.with_suffix(".json").resolve(),
+    }
+    return [p for p in dict.fromkeys(paths) if p.resolve() not in excluded]
+
+
+def write_outputs(report_obj: dict[str, Any], output_base: Path, formats: list[str]) -> list[Path]:
+    written: list[Path] = []
+    output_base.parent.mkdir(parents=True, exist_ok=True)
+
+    if "json" in formats:
+        p = output_base.with_suffix(".json")
+        p.write_text(json.dumps(report_obj, separators=(",", ":")), encoding="utf-8")
+        written.append(p)
+    if "md" in formats:
+        p = output_base.with_suffix(".md")
+        p.write_text(render_markdown(report_obj), encoding="utf-8")
+        written.append(p)
+    if "html" in formats:
+        p = output_base.with_suffix(".html")
+        p.write_text(render_html(report_obj), encoding="utf-8")
+        written.append(p)
+
+    return written
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Consolidate dev-activity-report outputs.")
+    parser.add_argument("--test-report-root", default=os.environ.get("DAR_TEST_REPORT_ROOT", ""))
+    parser.add_argument("--report-root", default=os.environ.get("DAR_REPORT_ROOT", str(Path.home())))
+
+    parser.add_argument("--test-report-glob", default=os.environ.get("DAR_TEST_REPORT_GLOB", "codex-test-report-*.md"))
+    parser.add_argument("--report-glob", default=os.environ.get("DAR_REPORT_GLOB", "dev-activity-report-*.md"))
+    parser.add_argument("--test-report-json-glob", default=os.environ.get("DAR_TEST_REPORT_JSON_GLOB", "codex-test-report-*.json"))
+    parser.add_argument("--report-json-glob", default=os.environ.get("DAR_REPORT_JSON_GLOB", "dev-activity-report-*.json"))
+
     parser.add_argument(
-        "--test-report-root",
-        default=os.environ.get("DAR_TEST_REPORT_ROOT", ""),
-        help="Directory containing codex-test-report-*.md files.",
-    )
-    parser.add_argument(
-        "--report-root",
-        default=os.environ.get("DAR_REPORT_ROOT", str(Path.home())),
-        help="Directory containing dev-activity-report-*.md files.",
-    )
-    parser.add_argument(
-        "--test-report-glob",
-        default=os.environ.get("DAR_TEST_REPORT_GLOB", "codex-test-report-*.md"),
-        help="Glob for codex test reports.",
-    )
-    parser.add_argument(
-        "--report-glob",
-        default=os.environ.get("DAR_REPORT_GLOB", "dev-activity-report-*.md"),
-        help="Glob for dev-activity reports.",
+        "--source-format",
+        choices=("auto", "json", "md"),
+        default=os.environ.get("DAR_SOURCE_FORMAT", "auto"),
+        help="Source mode: auto prefers JSON if present; md forces markdown parsing.",
     )
     parser.add_argument(
         "--output",
-        default=os.environ.get(
-            "DAR_AGGREGATE_OUTPUT",
-            str(Path.home() / "dev-activity-report-aggregate.md"),
-        ),
-        help="Output markdown path.",
+        default=os.environ.get("DAR_AGGREGATE_OUTPUT", str(Path.home() / "dev-activity-report-aggregate.md")),
+        help="Aggregate output path (base stem is used for json/md/html outputs).",
+    )
+    parser.add_argument(
+        "--formats",
+        default=os.environ.get("DAR_AGGREGATE_FORMATS", "json,md,html"),
+        help="Comma-separated output formats: json,md,html",
     )
     parser.add_argument(
         "--title",
         default=os.environ.get("DAR_AGGREGATE_TITLE", "Dev Activity Report — Aggregate"),
-        help="Document title.",
     )
 
     args = parser.parse_args()
+
     output_path = Path(os.path.expanduser(args.output))
+    output_base = output_path.with_suffix("") if output_path.suffix else output_path
     test_root = Path(os.path.expanduser(args.test_report_root)) if args.test_report_root else Path("/nonexistent")
     report_root = Path(os.path.expanduser(args.report_root))
+    formats = [f.strip().lower() for f in args.formats.split(",") if f.strip()]
+    for f in formats:
+        if f not in {"json", "md", "html"}:
+            raise SystemExit(f"Unsupported format: {f}")
 
     t0 = time.monotonic()
-    report_paths = collect_report_paths(
-        test_root, report_root, args.test_report_glob, args.report_glob, output_path
-    )
 
-    if not report_paths:
+    json_paths = collect_report_paths(test_root, report_root, args.test_report_json_glob, args.report_json_glob, output_base)
+    md_paths = collect_report_paths(test_root, report_root, args.test_report_glob, args.report_glob, output_base)
+
+    source_mode = args.source_format
+    selected_paths: list[Path]
+    if source_mode == "json":
+        selected_paths = json_paths
+    elif source_mode == "md":
+        selected_paths = md_paths
+    else:
+        if json_paths:
+            source_mode = "json"
+            selected_paths = json_paths
+        else:
+            source_mode = "md"
+            selected_paths = md_paths
+
+    if not selected_paths:
         raise SystemExit("No reports found to consolidate.")
 
-    sections, table_headers = build_sections(report_paths)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    write_output(output_path, sections, table_headers, args.title, len(report_paths))
-    elapsed = time.monotonic() - t0
-
-    total_entries = sum(len(v) for v in sections.values())
-    nonempty = sum(1 for v in sections.values() if v)
-    print(output_path)
-    print(
-        f"  {len(report_paths)} reports · {nonempty} sections · {total_entries} entries · {elapsed:.2f}s",
-        flush=True,
+    report_obj = (
+        merge_json_reports(selected_paths, args.title)
+        if source_mode == "json"
+        else merge_md_reports(selected_paths, args.title)
     )
 
-    # Archive source reports into a timestamped tar.gz alongside the output file
+    written = write_outputs(report_obj, output_base, formats)
+    elapsed = time.monotonic() - t0
+
+    for p in written:
+        print(p)
+    print(f"  source={source_mode} · {len(selected_paths)} reports · outputs={len(written)} · {elapsed:.2f}s", flush=True)
+
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    stem = output_path.stem  # e.g. "dev-activity-report-aggregate"
-    archive_path = output_path.parent / f"{stem}-consolidated-{ts}.tar.gz"
+    archive_path = output_base.parent / f"{output_base.name}-consolidated-{ts}.tar.gz"
     with tarfile.open(archive_path, "w:gz") as tar:
-        for p in report_paths:
+        for p in selected_paths:
             tar.add(p, arcname=p.name)
     print(f"  archived → {archive_path}", flush=True)
 

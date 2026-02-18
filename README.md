@@ -303,7 +303,14 @@ To add project-specific exclusions, edit `.dev-report-fingerprint-ignore` in the
 
 ### Consolidate Reports
 
-Use the consolidator to merge all `dev-activity-report-*.md` outputs and `codex-test-report-*.md` test reports into a single, de-duplicated document grouped by heading:
+Use the consolidator to merge report outputs into a single aggregate artifact set.
+
+By default (`--source-format auto`), it prefers JSON reports when present and emits:
+- aggregate JSON
+- aggregate Markdown
+- aggregate HTML
+
+Use `--source-format md` only when you explicitly want legacy Markdown-source parsing.
 
 ```bash
 python3 skills/dev-activity-report-skill/scripts/consolidate_reports.py \
@@ -318,6 +325,10 @@ Templated values are provided via environment variables:
 - `DAR_REPORT_ROOT` (default: `~`)
 - `DAR_TEST_REPORT_GLOB` (default: `codex-test-report-*.md`)
 - `DAR_REPORT_GLOB` (default: `dev-activity-report-*.md`)
+- `DAR_TEST_REPORT_JSON_GLOB` (default: `codex-test-report-*.json`)
+- `DAR_REPORT_JSON_GLOB` (default: `dev-activity-report-*.json`)
+- `DAR_SOURCE_FORMAT` (default: `auto`; one of `auto|json|md`)
+- `DAR_AGGREGATE_FORMATS` (default: `json,md,html`)
 - `DAR_AGGREGATE_OUTPUT` (default: `~/dev-activity-report-aggregate.md`)
 - `DAR_AGGREGATE_TITLE` (default: `Dev Activity Report — Aggregate`)
 
