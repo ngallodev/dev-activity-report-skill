@@ -56,7 +56,7 @@ A token-efficient, focused test suite covering the most fragile and critical par
 
 ### All Python Tests
 ```bash
-cd /lump/apps/dev-activity-report-skill
+cd /path/to/dev-activity-report-skill
 pytest tests/ -v
 ```
 

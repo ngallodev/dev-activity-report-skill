@@ -115,6 +115,8 @@ All user-specific values (paths, identity, models) live in a `.env` file that's 
 
 ## Limitations & Roadmap
 
+**Privacy note:** Phase 1 includes full absolute paths (project directories, Codex working directories) in the payload sent to the LLM in Phase 2. This is expected behavior — the paths are used to generate the report — but be aware that your local directory structure is part of the prompt. Set `INCLUDE_SOURCE_PAYLOAD=false` (the default) to omit the raw payload from the final JSON output file.
+
 **Current limitations:**
 - Single-machine only. Scans local filesystems; no native SSH orchestration yet.
 - Interactive review is terminal-only (`--interactive`) and intentionally skipped in CI/non-TTY contexts.
@@ -333,7 +335,7 @@ echo "- Added custom logging middleware" > /path/to/fork/.forked-work
 touch /path/to/fork/.forked-work-modified
 ```
 
-For `.forked-work-modified`, the next scan will inspect git log, diffs, and file timestamps to write the `.forked-work` file for you, then delete the trigger.
+For `.forked-work-modified`, the next scan will inspect git log, diffs, and file timestamps to write the `.forked-work` file for you, then delete the trigger. This is a best-effort heuristic — review the generated `.forked-work` file before running the report to confirm the attribution is accurate.
 
 ### Warm scans
 
