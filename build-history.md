@@ -1964,4 +1964,23 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+
+## Milestone 23 — Narrow Claude fingerprint scope (2026-02-19)
+
+**Change**: Stop using ~/.claude/skills updates to invalidate Phase 1 cache. Fingerprint now only includes stable Claude config files instead of hashing all of CLAUDE_HOME.
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/phase1_runner.py`**
+- `collect_claude_activity()` now hashes only `CLAUDE_HOME/config.toml` (when present) and ignores `~/.claude/skills` and other volatile folders
+
+**`tests/test_pipeline_integration.sh`**
+- Update Test 6 expected test-file list to match current suite
+
+### Result
+- Phase 1 cache no longer invalidates when `sync_skill.sh` updates `~/.claude/skills`
+- Benchmarked Phase 1 cold/warm runs (appended to `skills/dev-activity-report-skill/references/benchmarks.jsonl`)
+
+---
+
 *End of Build History*

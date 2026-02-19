@@ -595,9 +595,7 @@ def collect_insights_log(env: dict[str, str]) -> tuple[list[str], str, dict[str,
     insights_lines = tail_lines(INSIGHTS_LOG, limit=MAX_INSIGHTS_LINES)
     insights_fp = hash_file(INSIGHTS_LOG) if INSIGHTS_LOG.exists() else ""
     report_path = expand_path(env.get("INSIGHTS_REPORT_PATH", ""))
-    if report_path.exists():
-        report_hash = hash_file(report_path)
-        insights_fp = hashlib.sha256((insights_fp + report_hash).encode()).hexdigest()
+    # Do not include report.html in the fingerprint; it's volatile and owned by a separate skill.
     return insights_lines, insights_fp, {"log_path": str(INSIGHTS_LOG), "report_path": str(report_path)}
 
 
@@ -617,7 +615,11 @@ def collect_claude_activity(claude_home: Path, allowed_exts: set[str]) -> tuple[
     summary["hk"] = list_dir(claude_home / "hooks", limit=20)
     summary["ag"] = list_dir(claude_home / "agents" / "team", limit=10)
     metrics = claude_home / "delegation-metrics.jsonl"
-    meta["fp"] = hash_non_git_dir(claude_home, allowed_exts, max_depth=2)
+    stable_files: list[str] = []
+    config_file = claude_home / "config.toml"
+    if config_file.exists():
+        stable_files.append(str(config_file.relative_to(claude_home)))
+    meta["fp"] = hash_paths(claude_home, stable_files) if stable_files else ""
     meta["metrics_head"] = tail_lines(metrics, limit=2)
     return summary, meta
 
@@ -656,8 +658,13 @@ def collect_codex_activity(codex_home: Path, allowed_exts: set[str]) -> tuple[di
         summary["md"] = "codex-config"
     skills_dir = codex_home / "skills"
     summary["sk"] = list_dir(skills_dir, limit=20)
-    tracked_files = [str(sf.relative_to(codex_home)) for sf in session_files]
-    meta["fp"] = hash_paths(codex_home, tracked_files)
+    stable_files: list[str] = []
+    if config_file.exists():
+        stable_files.append(str(config_file.relative_to(codex_home)))
+    rules_file = codex_home / "rules" / "default.rules"
+    if rules_file.exists():
+        stable_files.append(str(rules_file.relative_to(codex_home)))
+    meta["fp"] = hash_paths(codex_home, stable_files) if stable_files else ""
     rules_file = codex_home / "rules" / "default.rules"
     meta["rules_lines"] = safe_stat(rules_file) or 0
     return summary, meta
