@@ -2002,4 +2002,42 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+
+## Milestone 25 — Smarter insights quote filtering (2026-02-19)
+
+**Change**: Filter out report headings/labels so insights quotes include only substantive sentences.
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/run_pipeline.py`**
+- Add heading/noise detection for insights quotes (short labels, title-case headings, common section titles)
+- Raise minimum word threshold and keep only content-like sentences or bullets
+
+---
+
+
+## Milestone 26 — LLM insights quote selection (2026-02-19)
+
+**Change**: Use a model to select substantive insights quotes and avoid headings/labels in the report insights section.
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/run_pipeline.py`**
+- Add LLM-based insights quote selection with JSON-only output and strict filtering rules
+- Pass `claude_bin` into quote extraction to enable model selection
+
+**`skills/dev-activity-report-skill/SKILL.md`**
+- Document `INSIGHTS_QUOTES_MODEL` for quote extraction
+
+**`tests/test_prompt_parsing_and_refresh.py`**
+- Update Phase 2 prompt test to accept the new `extract_insights_quotes` signature
+
+### Testing
+- `pytest -q`
+
+### Benchmarks
+- LLM insights quote selection timing appended to `skills/dev-activity-report-skill/references/benchmarks.jsonl`
+
+---
+
 *End of Build History*

@@ -49,6 +49,7 @@ This copies the example if needed, attempts auto-fill from environment, and prom
 | `PHASE15_RULES_EXTRA`, `PHASE2_RULES_EXTRA` | _(blank)_ | custom rules injected after stock prompt/schema |
 | `INCLUDE_CLAUDE_INSIGHTS_QUOTES` | `false` | include quoted excerpts from `INSIGHTS_REPORT_PATH` in Phase 2 context |
 | `CLAUDE_INSIGHTS_QUOTES_MAX`, `CLAUDE_INSIGHTS_QUOTES_MAX_CHARS` | `8`, `2000` | caps for quote count and quote text size |
+| `INSIGHTS_QUOTES_MODEL` | `${PHASE15_MODEL}` | model used to select insights quotes |
 
 ---
 

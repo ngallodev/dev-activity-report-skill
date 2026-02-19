@@ -297,7 +297,10 @@ def _extract_insights_text_lines(path: Path) -> list[str]:
     return lines
 
 
-def extract_insights_quote_entries(env: dict[str, str]) -> tuple[list[dict[str, str]], str]:
+def extract_insights_quote_entries(
+    env: dict[str, str],
+    claude_bin: str | None = None,
+) -> tuple[list[dict[str, str]], str]:
     """Return (quote_entries, source_path) for optional Phase 2 prompt context."""
     if not env_bool(env, "INCLUDE_CLAUDE_INSIGHTS_QUOTES", default=False):
         return [], ""
@@ -310,32 +313,67 @@ def extract_insights_quote_entries(env: dict[str, str]) -> tuple[list[dict[str, 
     if not lines:
         return [], str(path)
 
-    keywords = (
-        "usage", "pattern", "wins", "friction", "outcomes", "tool",
-        "session", "workflow", "insight", "delegate", "automation", "report"
-    )
-    candidates: list[str] = []
-    for line in lines:
-        # Skip lines that look like CSS/code artifacts
-        if "{" in line or "}" in line or line.startswith("--") or line.startswith("."):
-            continue
-        lower = line.lower()
-        is_candidate = (
-            line.startswith("-")
-            or line.startswith("•")
-            or any(k in lower for k in keywords)
-            or len(line.split()) >= 8
-        )
-        if is_candidate and line not in candidates:
-            candidates.append(line)
-
     max_quotes = int(env.get("CLAUDE_INSIGHTS_QUOTES_MAX", 8) or 8)
     max_chars = int(env.get("CLAUDE_INSIGHTS_QUOTES_MAX_CHARS", 2000) or 2000)
     source_path = str(path)
     source_link = path_to_file_url(source_path)
+
+    # Prefer LLM-based extraction to avoid headings/labels; fall back to heuristic if needed.
+    quotes: list[str] = []
+    if claude_bin:
+        model = env.get("INSIGHTS_QUOTES_MODEL", env.get("PHASE15_MODEL", "haiku"))
+        # Cap the input size to keep prompt size bounded.
+        max_lines = 200
+        trimmed = lines[:max_lines]
+        numbered = "\n".join(f"{i+1}. {line}" for i, line in enumerate(trimmed))
+        prompt = (
+            "Select up to {max_q} substantive insight sentences from the list below.\n"
+            "Rules:\n"
+            "- Return JSON only: {{\"quotes\":[\"...\"]}}\n"
+            "- Quotes must be exact full lines from the list (verbatim, no edits).\n"
+            "- Exclude headings, labels, UI chrome, short fragments, and section titles.\n"
+            "- Prefer lines with concrete metrics, outcomes, or workflow insights.\n"
+            "- Do not include more than {max_chars} total characters across all quotes.\n\n"
+            "Lines:\n{lines}\n"
+        ).format(max_q=max_quotes, max_chars=max_chars, lines=numbered)
+        try:
+            raw, _usage = claude_call(prompt, model, claude_bin, system_prompt="Return JSON only.")
+            obj = parse_llm_json_output(raw)
+            raw_quotes = obj.get("quotes") if isinstance(obj, dict) else None
+            if isinstance(raw_quotes, list):
+                for q in raw_quotes:
+                    if isinstance(q, str) and q.strip():
+                        quotes.append(q.strip())
+        except Exception:
+            quotes = []
+
+    if not quotes:
+        keywords = (
+            "usage", "pattern", "wins", "friction", "outcomes", "tool",
+            "session", "workflow", "insight", "delegate", "automation", "report",
+            "tokens", "hours", "commits", "files", "sessions", "productivity",
+        )
+        candidates: list[str] = []
+        for line in lines:
+            # Skip lines that look like CSS/code artifacts
+            if "{" in line or "}" in line or line.startswith("--") or line.startswith("."):
+                continue
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+            lower = cleaned.lower()
+            is_candidate = (
+                cleaned.startswith("-")
+                or cleaned.startswith("•")
+                or any(k in lower for k in keywords)
+                or len(cleaned.split()) >= 9
+            )
+            if is_candidate and cleaned not in candidates:
+                candidates.append(cleaned)
+        quotes = candidates
     selected: list[dict[str, str]] = []
     total = 0
-    for line in candidates:
+    for line in quotes:
         if total + len(line) > max_chars and selected:
             break
         selected.append(
@@ -546,9 +584,12 @@ Rules:
 """
 
 
-def extract_insights_quotes(env: dict[str, str]) -> tuple[str, str]:
+def extract_insights_quotes(
+    env: dict[str, str],
+    claude_bin: str | None = None,
+) -> tuple[str, str]:
     """Return (insights_block, source_path) for optional Phase 2 prompt context."""
-    entries, source = extract_insights_quote_entries(env)
+    entries, source = extract_insights_quote_entries(env, claude_bin=claude_bin)
     if not entries:
         return "", source
     block = "\n".join(f'- "{item.get("quote", "")}"' for item in entries if item.get("quote"))
@@ -570,8 +611,8 @@ def call_phase2(
             "Additional user rules from .env (apply without changing the JSON schema):\n"
             f"{extra_rules}\n\n"
         )
-    insights_block, insights_source = extract_insights_quotes(env)
-    insight_quote_entries, _ = extract_insights_quote_entries(env)
+    insights_block, insights_source = extract_insights_quotes(env, claude_bin=claude_bin)
+    insight_quote_entries, _ = extract_insights_quote_entries(env, claude_bin=claude_bin)
     insights_prompt_block = ""
     if insights_block:
         quotes_json = json.dumps(insight_quote_entries, separators=(",", ":"))
@@ -966,7 +1007,7 @@ def run(
     source_summary = build_source_summary(expanded_payload)
     sections = normalize_sections(sections)
     insights_meta = parse_insights_sections(expanded_payload.get("insights", []), env)
-    insights_quotes, _ = extract_insights_quote_entries(env)
+    insights_quotes, _ = extract_insights_quote_entries(env, claude_bin=claude_bin)
     phase2_quotes = []
     if isinstance(sections.get("insights_quotes"), list):
         for item in sections.get("insights_quotes") or []:

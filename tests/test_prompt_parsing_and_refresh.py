@@ -59,7 +59,7 @@ class TestPhase2JsonParsing:
             return "{}", {"prompt_tokens": 1, "completion_tokens": 1}
 
         monkeypatch.setattr(run_pipeline, "claude_call", fake_claude_call)
-        monkeypatch.setattr(run_pipeline, "extract_insights_quotes", lambda env: ("", ""))
+        monkeypatch.setattr(run_pipeline, "extract_insights_quotes", lambda env, claude_bin=None: ("", ""))
 
         env = {
             "RESUME_HEADER": "Name, Jan 2025 - Present",
