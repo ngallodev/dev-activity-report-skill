@@ -201,12 +201,12 @@ echo "Test 6: Test suite structure"
 echo "-----------------------------"
 
 TEST_FILES=(
-    "tests/test_caching_integrity.py"
-    "tests/test_ownership_markers.py"
-    "tests/test_pipeline_contracts.py"
-    "tests/test_configuration.py"
-    "tests/test_non_git_handling.py"
-    "tests/test_render_output.py"
+    "tests/test_contracts_and_caching.py"
+    "tests/test_consolidate_reports.py"
+    "tests/test_failure_modes.py"
+    "tests/test_integration_pipeline.py"
+    "tests/test_prompt_parsing_and_refresh.py"
+    "tests/test_shell_integration.sh"
 )
 
 for test_file in "${TEST_FILES[@]}"; do

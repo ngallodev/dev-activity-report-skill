@@ -1964,4 +1964,42 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+
+## Milestone 23 — Narrow Claude fingerprint scope (2026-02-19)
+
+**Change**: Stop using ~/.claude/skills updates to invalidate Phase 1 cache. Fingerprint now only includes stable Claude config files instead of hashing all of CLAUDE_HOME.
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/phase1_runner.py`**
+- `collect_claude_activity()` now hashes only `CLAUDE_HOME/config.toml` (when present) and ignores `~/.claude/skills` and other volatile folders
+
+**`tests/test_pipeline_integration.sh`**
+- Update Test 6 expected test-file list to match current suite
+
+### Result
+- Phase 1 cache no longer invalidates when `sync_skill.sh` updates `~/.claude/skills`
+- Benchmarked Phase 1 cold/warm runs (appended to `skills/dev-activity-report-skill/references/benchmarks.jsonl`)
+
+---
+
+## Milestone 24 — Fix CSS leaking into insights quotes (2026-02-18)
+
+**Problem**: The delivered report's Insights > Quotes section was populated with raw CSS rules (`body { font-family: ... }`, CSS variable definitions, etc.) instead of meaningful prose content.
+
+**Root cause**: Two regex bugs in `_extract_insights_text_lines()` in `run_pipeline.py`:
+1. `r"(?is)<(script|style)[^>]*>.*?</\\1>"` — the double-escaped `\\1` produced a literal string `\1`, not a backreference. `<style>` blocks were never stripped, leaving all CSS in the text pool.
+2. `r"(?i)<br\\s*/?>"` — `\\s` is a literal two-char sequence, not a whitespace character class, so `<br>` tags were never converted to newlines.
+
+**Fix** (`run_pipeline.py`):
+- Corrected both regexes to single-backslash form: `r"(?is)<(script|style)[^>]*>.*?</\1>"` and `r"(?i)<br\s*/?>"`
+- Added a defense-in-depth CSS artifact filter in the candidate selection loop: skip any line containing `{` or `}`, starting with `--` (CSS custom property), or starting with `.` (class selector)
+- Verified against real `report.html`: 526 valid prose lines extracted, 0 CSS-like lines remaining
+
+### Test results
+- All 58 tests pass (1.43s)
+- No new tests needed: existing `test_extract_insights_quotes_opt_in` and `test_extract_insights_quote_entries_opt_in` cover the extraction path; the bug was a silent wrong-output, not a crash
+
+---
+
 *End of Build History*

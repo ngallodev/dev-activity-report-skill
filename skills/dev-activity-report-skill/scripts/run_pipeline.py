@@ -283,8 +283,8 @@ def _extract_insights_text_lines(path: Path) -> list[str]:
         return []
 
     # Lightweight HTML-to-text extraction without extra dependencies.
-    raw = re.sub(r"(?is)<(script|style)[^>]*>.*?</\\1>", " ", raw)
-    raw = re.sub(r"(?i)<br\\s*/?>", "\n", raw)
+    raw = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", raw)
+    raw = re.sub(r"(?i)<br\s*/?>", "\n", raw)
     raw = re.sub(r"(?i)</(p|li|h1|h2|h3|h4|h5|h6|div|section|article)>", "\n", raw)
     raw = re.sub(r"(?s)<[^>]+>", " ", raw)
     text = html.unescape(raw)
@@ -316,6 +316,9 @@ def extract_insights_quote_entries(env: dict[str, str]) -> tuple[list[dict[str, 
     )
     candidates: list[str] = []
     for line in lines:
+        # Skip lines that look like CSS/code artifacts
+        if "{" in line or "}" in line or line.startswith("--") or line.startswith("."):
+            continue
         lower = line.lower()
         is_candidate = (
             line.startswith("-")

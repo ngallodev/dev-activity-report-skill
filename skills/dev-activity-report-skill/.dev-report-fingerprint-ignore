@@ -29,6 +29,7 @@ debug/*.txt
 ccusage-blocks.json
 usage-data/facets/*
 usage-data/session-meta/*
+usage-data/report.html
 
 # ── Credential and token files (also sensitive — never hash) ─────────────────
 .credentials.json
