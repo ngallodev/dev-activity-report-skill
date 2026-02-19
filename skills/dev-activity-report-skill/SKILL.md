@@ -37,7 +37,7 @@ This copies the example if needed, attempts auto-fill from environment, and prom
 | `PHASE1_MODEL` | `haiku` | Bash subagent |
 | `PHASE15_MODEL` | `haiku` | draft synthesis |
 | `PHASE2_MODEL` | `sonnet` | report polish |
-| `PHASE3_MODEL` | `gpt-5.1-codex-mini` | deterministic cache writes |
+| `PHASE3_MODEL` | `haiku` | cache verification (Claude default; only used in Codex mode) |
 | `SUBSCRIPTION_MODE` | `true` | set true when auth is handled by subscription (no API keys) |
 | `TOKEN_LOG_PATH` | `${REPORT_OUTPUT_DIR}/token_economics.log` | JSONL |
 | `BUILD_LOG_PATH` | `${REPORT_OUTPUT_DIR}/build.log` | summary lines |
@@ -86,7 +86,7 @@ python3 scripts/phase1_5_draft.py --input phase1.json > phase1_5.json
 The script sends a concise prompt to `${PHASE15_MODEL}` (env-configurable) to create a rough bullet draft; falls back to a deterministic heuristic if no API key. Token usage is appended to `TOKEN_LOG_PATH` and `BUILD_LOG_PATH` when credentials exist.
 
 Phase 1.5 prompt layering:
-`stock prompt` -> `PHASE15_RULES_EXTRA` (or legacy `PHASE15_PROMPT_PREFIX`) -> injected Summary JSON.
+`stock prompt` -> `PHASE15_RULES_EXTRA` -> `PHASE15_PROMPT_PREFIX` -> injected Summary JSON.
 The Summary JSON is always injected after custom rules.
 
 Output JSON: `{"draft": "<text>", "usage": {...}, "cost": <float|null>}`
@@ -97,13 +97,13 @@ Output JSON: `{"draft": "<text>", "usage": {...}, "cost": <float|null>}`
 
 By default, this skill runs **in the background** with no terminal output and no permission prompts. On completion, send a **terminal-notifier** notification stating the report path. Foreground output is only shown when explicitly requested.
 
-Use the runner (models read from `.env`):
+The default runner delegates all phases to `run_pipeline.py`, which uses only the Claude CLI — no additional tools required:
 ```
 scripts/run_report.sh          # background, silent, notify on completion
 scripts/run_report.sh --foreground
 ```
 
-The runner uses `codex exec` with `--approval never --sandbox workspace-write` to avoid interactive permission prompts. If the user requests foreground execution, run the same code path but stream output.
+**Codex mode** (power-user opt-in): set `USE_CODEX=true` in `.env` or pass `--codex`. This routes phases through `codex exec --approval never --sandbox workspace-write`. Only use this if Codex CLI is installed and you need its sandbox or model routing. Without the flag or env var, Codex is never invoked and does not need to be installed.
 
 ---
 
@@ -163,9 +163,11 @@ Save final report to `${REPORT_OUTPUT_DIR}/${REPORT_FILENAME_PREFIX}-<YYYYMMDDTH
 
 ---
 
-## Phase 3 — Cache writes (Codex)
+## Phase 3 — Cache verification
 
-This is a simple Bash tool call, almost any model should be able to handle it. The input is the stale projects list only. Fingerprints are content hashes of git-tracked files (or allowed non-git files) and should be written into `.dev-report-cache.md` per project. Model: `${PHASE3_MODEL}`.
+In the default Claude pipeline (`run_pipeline.py`), Phase 3 is a pure Python inline check — no model call needed. It reads `.phase1-cache.json` and prints the per-project `.dev-report-cache.md` fingerprint status.
+
+In Codex mode (`USE_CODEX=true`), Phase 3 runs via `codex exec -m ${PHASE3_MODEL}`. Model: `${PHASE3_MODEL}` (default: `haiku`).
 
 Prompt prefix (optional): `${PHASE3_PROMPT_PREFIX}`.
 

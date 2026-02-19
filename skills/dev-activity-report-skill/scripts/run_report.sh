@@ -2,8 +2,9 @@
 set -euo pipefail
 
 # Background-first runner for dev-activity-report.
-# Default: background run with no terminal output; sends notification on completion.
+# Default: delegates to run_pipeline.py (Claude-only, no extra CLI required).
 # Foreground: pass --foreground to stream output.
+# Codex mode: set USE_CODEX=true in .env or pass --codex (power-user option).
 
 SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -67,16 +68,18 @@ TS="$(date -u +%Y%m%dT%H%M%SZ)"
 REPORT_FILENAME_PREFIX="${REPORT_FILENAME_PREFIX:-dev-activity-report}"
 BASE_NAME="${REPORT_FILENAME_PREFIX}-${TS}"
 REPORT_OUTPUT_FORMATS="${REPORT_OUTPUT_FORMATS:-md}"
-LOG_FILE="$OUTPUT_DIR/codex-run-$TS.log"
-PHASE1_OUT="$OUTPUT_DIR/codex-phase1-last-message.json"
-PHASE15_OUT="$OUTPUT_DIR/codex-phase1_5-last-message.txt"
-PHASE2_OUT="$OUTPUT_DIR/codex-phase2-sections.json"
+LOG_FILE="$OUTPUT_DIR/pipeline-run-$TS.log"
+PHASE1_OUT="$OUTPUT_DIR/phase1-last-message.json"
+PHASE15_OUT="$OUTPUT_DIR/phase1_5-last-message.txt"
+PHASE2_OUT="$OUTPUT_DIR/phase2-sections.json"
 PHASE2_JSON="$OUTPUT_DIR/${BASE_NAME}.json"
 
 FOREGROUND=false
 REFRESH=false
 SINCE_ARG="${REPORT_SINCE:-}"
 ROOT_ARGS=()
+# Codex mode is opt-in; default is the Claude-native pipeline (run_pipeline.py).
+USE_CODEX="${USE_CODEX:-false}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -104,6 +107,10 @@ while [[ $# -gt 0 ]]; do
       ROOT_ARGS+=("$2")
       shift 2
       ;;
+    --codex)
+      USE_CODEX=true
+      shift
+      ;;
     *)
       echo "Unknown argument: $1" >&2
       exit 1
@@ -111,6 +118,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# ── Background re-launch ──────────────────────────────────────────────────────
 if [[ "$FOREGROUND" == "false" ]]; then
   CMD=("$0" "--foreground")
   if [[ -n "$SINCE_ARG" ]]; then
@@ -124,13 +132,41 @@ if [[ "$FOREGROUND" == "false" ]]; then
       CMD+=("--root" "$root")
     done
   fi
+  if [[ "$USE_CODEX" == "true" ]]; then
+    CMD+=("--codex")
+  fi
   nohup "${CMD[@]}" >"$LOG_FILE" 2>&1 &
+  echo "Pipeline started in background (PID $!). Log: $LOG_FILE"
   exit 0
 fi
 
+# ── Default path: Claude-native pipeline via run_pipeline.py ─────────────────
+if [[ "$USE_CODEX" != "true" ]]; then
+  PIPELINE_CMD=(python3 "$SKILL_DIR/scripts/run_pipeline.py" --foreground)
+  if [[ -n "$SINCE_ARG" ]]; then
+    PIPELINE_CMD+=(--since "$SINCE_ARG")
+  fi
+  if [[ "$REFRESH" == "true" ]]; then
+    PIPELINE_CMD+=(--refresh)
+  fi
+  if [[ ${#ROOT_ARGS[@]} -gt 0 ]]; then
+    for root in "${ROOT_ARGS[@]}"; do
+      PIPELINE_CMD+=(--root "$root")
+    done
+  fi
+  "${PIPELINE_CMD[@]}"
+  PRIMARY_FORMAT="${REPORT_OUTPUT_FORMATS%%,*}"
+  if [[ -z "$PRIMARY_FORMAT" ]]; then
+    PRIMARY_FORMAT="md"
+  fi
+  notify_done "Report completed: $OUTPUT_DIR/${REPORT_FILENAME_PREFIX}-*.${PRIMARY_FORMAT}"
+  exit 0
+fi
+
+# ── Codex path (power-user opt-in: USE_CODEX=true or --codex) ────────────────
 CODEX_BIN="${CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
 if [[ -z "$CODEX_BIN" ]]; then
-  echo "codex binary not found on PATH. Install it and ensure it is executable." >&2
+  echo "codex binary not found on PATH. Install it or remove --codex / USE_CODEX=true to use the default Claude pipeline." >&2
   exit 1
 fi
 
@@ -157,11 +193,7 @@ function require_env () {
 }
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  if [[ "$FOREGROUND" == "true" ]]; then
-    python3 "$SKILL_DIR/scripts/setup_env.py"
-  else
-    python3 "$SKILL_DIR/scripts/setup_env.py" --non-interactive
-  fi
+  python3 "$SKILL_DIR/scripts/setup_env.py"
   # shellcheck disable=SC1090
   source "$ENV_FILE"
 fi
@@ -175,7 +207,7 @@ else
   ROOTS_RAW="${APPS_DIRS:-${APPS_DIR:-}}"
 fi
 
-python3 - "$WORKSPACE_DIR" "$ROOTS_RAW" "$EXTRA_SCAN_DIRS" "$OUTPUT_DIR" "$PHASE1_MODEL" "$PHASE15_MODEL" "$PHASE2_MODEL" "$PHASE3_MODEL" "$REPORT_SANDBOX" <<'PY'
+python3 - "$WORKSPACE_DIR" "$ROOTS_RAW" "${EXTRA_SCAN_DIRS:-}" "$OUTPUT_DIR" "$PHASE1_MODEL" "$PHASE15_MODEL" "$PHASE2_MODEL" "$PHASE3_MODEL" "$REPORT_SANDBOX" <<'PY'
 import os
 import sys
 from pathlib import Path

@@ -1874,4 +1874,32 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+## Milestone 20 — Default to Claude pipeline; gate Codex as opt-in (2026-02-18)
+
+**Problem**: `run_report.sh` and `SKILL.md` assumed Codex CLI was always present and used it as the primary executor for all phases. This made the skill fail immediately for any user without Codex installed, even though `run_pipeline.py` is a complete, Claude-only pipeline that requires nothing beyond the Claude CLI.
+
+**Fix**: Make `run_pipeline.py` the default execution path. Codex is now an explicit opt-in for power users.
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/run_report.sh`**
+- Removed unconditional `codex` binary check (was line 131-135; now only executed in Codex mode)
+- Added `USE_CODEX` env var gate (default `false`) and `--codex` CLI flag
+- Default foreground path: delegates directly to `run_pipeline.py --foreground` with all args passed through (`--since`, `--refresh`, `--root`)
+- Codex path (everything after the gate): unchanged behavior, still requires `CODEX_BIN` on PATH
+- Background re-launch now propagates `--codex` flag correctly
+- Renamed temp output files from `codex-run-*.log`, `codex-phase1-*.json` etc. to `pipeline-run-*.log`, `phase1-*.json` — names are now mode-neutral
+
+**`skills/dev-activity-report-skill/SKILL.md`**
+- Run Mode section: documents `run_pipeline.py` as the default, describes Codex as power-user opt-in
+- Phase 3 section: distinguishes default (pure Python inline check in `run_pipeline.py`) from Codex mode (`codex exec`)
+- `PHASE3_MODEL` default changed from `gpt-5.1-codex-mini` → `haiku` with note that it's only used in Codex mode
+
+### Result
+- 52/52 tests passing
+- Default invocation (`scripts/run_report.sh`) works with zero Codex dependency
+- Codex path fully preserved for users who opt in
+
+---
+
 *End of Build History*
