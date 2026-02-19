@@ -99,13 +99,13 @@ Output JSON: `{"draft": "<text>", "usage": {...}, "cost": <float|null>}`
 
 By default, this skill runs **in the background** with no terminal output and no permission prompts. On completion, send a **terminal-notifier** notification stating the report path. Foreground output is only shown when explicitly requested.
 
-The default runner delegates all phases to `run_pipeline.py`, which uses only the Claude CLI — no additional tools required:
+The default runner delegates all phases to `run_pipeline.py` (Claude-first by default):
 ```
 scripts/run_report.sh          # background, silent, notify on completion
 scripts/run_report.sh --foreground
 ```
 
-**Codex mode** (power-user opt-in): set `USE_CODEX=true` in `.env` or pass `--codex`. This routes phases through `codex exec --approval never --sandbox workspace-write`. Only use this if Codex CLI is installed and you need its sandbox or model routing. Without the flag or env var, Codex is never invoked and does not need to be installed.
+**Codex mode** (power-user opt-in): set `USE_CODEX=true` in `.env` or pass `--codex`. In `run_pipeline.py`, OpenAI-family phase models route through `codex exec --approval never --sandbox workspace-write`; Claude models continue through the Claude CLI. In `run_report.sh --codex`, all model phases route through `codex exec`.
 
 ---
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Direct pipeline runner — no codex exec overhead.
+Direct pipeline runner.
 
 Phases:
   0  — optional insights snapshot check
@@ -22,6 +22,8 @@ import html
 import json
 import os
 import re
+import shutil
+import tempfile
 import urllib.parse
 import subprocess
 import sys
@@ -99,8 +101,25 @@ def env_bool(env: dict[str, str], key: str, default: bool = False) -> bool:
 
 def find_claude_bin() -> str | None:
     """Find the claude CLI binary."""
-    import shutil
     return shutil.which("claude")
+
+
+def find_codex_bin() -> str | None:
+    """Find the codex CLI binary."""
+    return shutil.which("codex")
+
+
+def is_openai_model(model: str) -> bool:
+    name = (model or "").strip().lower()
+    if not name:
+        return False
+    if "claude" in name or name in {"haiku", "sonnet", "opus"}:
+        return False
+    return name.startswith(("gpt-", "o1", "o3", "o4", "o5")) or "codex" in name
+
+
+def should_use_codex_for_model(model: str, env: dict[str, str]) -> bool:
+    return env_bool(env, "USE_CODEX", default=False) and is_openai_model(model)
 
 
 # ── Notify helper ─────────────────────────────────────────────────────────────
@@ -300,6 +319,7 @@ def _extract_insights_text_lines(path: Path) -> list[str]:
 def extract_insights_quote_entries(
     env: dict[str, str],
     claude_bin: str | None = None,
+    codex_bin: str | None = None,
 ) -> tuple[list[dict[str, str]], str]:
     """Return (quote_entries, source_path) for optional Phase 2 prompt context."""
     if not env_bool(env, "INCLUDE_CLAUDE_INSIGHTS_QUOTES", default=False):
@@ -320,7 +340,7 @@ def extract_insights_quote_entries(
 
     # Prefer LLM-based extraction to avoid headings/labels; fall back to heuristic if needed.
     quotes: list[str] = []
-    if claude_bin:
+    if claude_bin or codex_bin:
         model = env.get("INSIGHTS_QUOTES_MODEL", env.get("PHASE15_MODEL", "haiku"))
         # Cap the input size to keep prompt size bounded.
         max_lines = 200
@@ -337,7 +357,15 @@ def extract_insights_quote_entries(
             "Lines:\n{lines}\n"
         ).format(max_q=max_quotes, max_chars=max_chars, lines=numbered)
         try:
-            raw, _usage = claude_call(prompt, model, claude_bin, system_prompt="Return JSON only.")
+            raw, _usage = call_model(
+                prompt=prompt,
+                model=model,
+                env=env,
+                claude_bin=claude_bin,
+                codex_bin=codex_bin,
+                system_prompt="Return JSON only.",
+                timeout=120,
+            )
             obj = parse_llm_json_output(raw)
             raw_quotes = obj.get("quotes") if isinstance(obj, dict) else None
             if isinstance(raw_quotes, list):
@@ -546,6 +574,98 @@ def claude_call(
     return text, usage
 
 
+def codex_exec_call(
+    prompt: str,
+    model: str,
+    codex_bin: str,
+    sandbox: str = "workspace-write",
+    system_prompt: str | None = None,
+    timeout: int = 300,
+) -> tuple[str, dict[str, int]]:
+    """Call `codex exec` and return the final assistant message."""
+    final_prompt = prompt
+    if system_prompt:
+        final_prompt = f"{system_prompt}\n\n{prompt}"
+
+    with tempfile.NamedTemporaryFile(prefix="dar-codex-last-", suffix=".txt", delete=False) as tmp:
+        last_message_path = tmp.name
+
+    cmd = [
+        codex_bin,
+        "exec",
+        "-m",
+        model,
+        "--approval",
+        "never",
+        "--sandbox",
+        sandbox,
+        "--output-last-message",
+        last_message_path,
+        "-",
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            input=final_prompt,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"codex exec failed (rc={result.returncode}):\n{result.stderr.strip()}"
+            )
+        last_message = Path(last_message_path)
+        if last_message.exists():
+            text = last_message.read_text(encoding="utf-8", errors="ignore").strip()
+        else:
+            text = (result.stdout or "").strip()
+    finally:
+        try:
+            Path(last_message_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    return text, {"prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0}
+
+
+def call_model(
+    prompt: str,
+    model: str,
+    env: dict[str, str],
+    claude_bin: str | None = None,
+    codex_bin: str | None = None,
+    system_prompt: str | None = None,
+    timeout: int = 300,
+) -> tuple[str, dict[str, int]]:
+    if should_use_codex_for_model(model, env):
+        if not codex_bin:
+            raise RuntimeError(
+                f"USE_CODEX=true with OpenAI model '{model}' but codex CLI not found on PATH."
+            )
+        sandbox = env.get("REPORT_SANDBOX", "workspace-write")
+        return codex_exec_call(
+            prompt=prompt,
+            model=model,
+            codex_bin=codex_bin,
+            sandbox=sandbox,
+            system_prompt=system_prompt,
+            timeout=timeout,
+        )
+
+    if not claude_bin:
+        raise RuntimeError(
+            f"Claude CLI required for model '{model}' but 'claude' is not on PATH."
+        )
+    return claude_call(
+        prompt=prompt,
+        model=model,
+        claude_bin=claude_bin,
+        system_prompt=system_prompt,
+        timeout=timeout,
+    )
+
+
 # ── Phase 2 prompt ────────────────────────────────────────────────────────────
 PHASE2_SYSTEM = """\
 You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding.
@@ -587,9 +707,14 @@ Rules:
 def extract_insights_quotes(
     env: dict[str, str],
     claude_bin: str | None = None,
+    codex_bin: str | None = None,
 ) -> tuple[str, str]:
     """Return (insights_block, source_path) for optional Phase 2 prompt context."""
-    entries, source = extract_insights_quote_entries(env, claude_bin=claude_bin)
+    entries, source = extract_insights_quote_entries(
+        env,
+        claude_bin=claude_bin,
+        codex_bin=codex_bin,
+    )
     if not entries:
         return "", source
     block = "\n".join(f'- "{item.get("quote", "")}"' for item in entries if item.get("quote"))
@@ -600,7 +725,8 @@ def call_phase2(
     compact_json: str,
     draft_text: str,
     env: dict[str, str],
-    claude_bin: str,
+    claude_bin: str | None = None,
+    codex_bin: str | None = None,
 ) -> tuple[str, dict[str, int]]:
     resume_header = env.get("RESUME_HEADER", "Your Name, Jan 2025 – Present")
     rules = PHASE2_RULES.format(resume_header=resume_header)
@@ -611,8 +737,16 @@ def call_phase2(
             "Additional user rules from .env (apply without changing the JSON schema):\n"
             f"{extra_rules}\n\n"
         )
-    insights_block, insights_source = extract_insights_quotes(env, claude_bin=claude_bin)
-    insight_quote_entries, _ = extract_insights_quote_entries(env, claude_bin=claude_bin)
+    insights_block, insights_source = extract_insights_quotes(
+        env,
+        claude_bin=claude_bin,
+        codex_bin=codex_bin,
+    )
+    insight_quote_entries, _ = extract_insights_quote_entries(
+        env,
+        claude_bin=claude_bin,
+        codex_bin=codex_bin,
+    )
     insights_prompt_block = ""
     if insights_block:
         quotes_json = json.dumps(insight_quote_entries, separators=(",", ":"))
@@ -632,7 +766,15 @@ def call_phase2(
     )
     model = env.get("PHASE2_MODEL", "sonnet")
     timeout = int(env.get("PHASE2_TIMEOUT", 300))
-    return claude_call(prompt, model, claude_bin, system_prompt=PHASE2_SYSTEM, timeout=timeout)
+    return call_model(
+        prompt=prompt,
+        model=model,
+        env=env,
+        claude_bin=claude_bin,
+        codex_bin=codex_bin,
+        system_prompt=PHASE2_SYSTEM,
+        timeout=timeout,
+    )
 
 
 # ── Phase 1.5 via claude CLI (when no SDK) ────────────────────────────────────
@@ -664,7 +806,8 @@ Output (same structure as terse mode, richer content):
 def call_phase15_claude(
     summary: dict,
     env: dict[str, str],
-    claude_bin: str,
+    claude_bin: str | None = None,
+    codex_bin: str | None = None,
 ) -> tuple[str, dict[str, int]]:
     model = env.get("PHASE15_MODEL", "haiku")
     thorough = env.get("PHASE15_THOROUGH", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -682,7 +825,14 @@ def call_phase15_claude(
         f"{json.dumps(summary, separators=(',', ':'))}"
     )
     timeout = int(env.get("PHASE15_TIMEOUT", 180))
-    return claude_call(prompt, model, claude_bin, timeout=timeout)
+    return call_model(
+        prompt=prompt,
+        model=model,
+        env=env,
+        claude_bin=claude_bin,
+        codex_bin=codex_bin,
+        timeout=timeout,
+    )
 
 
 # ── Cache verification (Phase 3) ──────────────────────────────────────────────
@@ -794,8 +944,11 @@ def run(
     since: str | None = None,
     refresh: bool = False,
     roots: list[str] | None = None,
+    codex: bool = False,
 ) -> int:
     env = load_env()
+    if codex:
+        env["USE_CODEX"] = "true"
 
     if not ENV_FILE.exists():
         setup = SCRIPT_DIR / "setup_env.py"
@@ -831,7 +984,21 @@ def run(
         return 1
 
     claude_bin = find_claude_bin()
-    if not claude_bin:
+    codex_bin = find_codex_bin()
+    phase1_model = env.get("PHASE1_MODEL", "haiku")
+    phase15_model = env.get("PHASE15_MODEL", phase1_model)
+    phase2_model = env.get("PHASE2_MODEL", "sonnet")
+    phase15_uses_codex = should_use_codex_for_model(phase15_model, env)
+    phase2_uses_codex = should_use_codex_for_model(phase2_model, env)
+
+    if (phase15_uses_codex or phase2_uses_codex) and not codex_bin:
+        print(
+            "USE_CODEX=true with OpenAI model configured, but codex CLI not found on PATH.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if (not phase15_uses_codex or not phase2_uses_codex) and not claude_bin:
         print("claude CLI not found on PATH. Install Claude Code to continue.", file=sys.stderr)
         return 1
 
@@ -847,7 +1014,6 @@ def run(
         print(f"  No insights report at {insights_path} — continuing.", flush=True)
 
     # ── Phase 1: data gathering ───────────────────────────────────────────────
-    phase1_model = env.get("PHASE1_MODEL", "haiku")
     print(f"== Phase 1 ({phase1_model}): data gathering ==", flush=True)
     if since_value:
         print(f"  git since filter: {since_value}", flush=True)
@@ -914,49 +1080,67 @@ def run(
     compact_payload = phase1_payload.get("data", phase1_payload)
 
     # ── Phase 1.5: cheap draft ────────────────────────────────────────────────
-    phase15_model = env.get("PHASE15_MODEL", phase1_model)
     print(f"== Phase 1.5 ({phase15_model}): draft ==", flush=True)
     t0 = time.monotonic()
 
-    # Try phase1_5_draft.py first (uses openai SDK if available)
-    result15 = subprocess.run(
-        [sys.executable, str(SCRIPT_DIR / "phase1_5_draft.py")],
-        input=phase1_json_str,
-        capture_output=True,
-        text=True,
-        cwd=str(SKILL_DIR),
-    )
-    phase15_payload = {}
     usage15: dict = {"prompt_tokens": 0, "completion_tokens": 0}
-
-    if result15.returncode == 0:
+    if phase15_uses_codex:
+        print(f"  USE_CODEX=true; routing Phase 1.5 to codex exec ({phase15_model})", flush=True)
+        summary = phase1_payload.get("data", phase1_payload)
         try:
-            phase15_payload = json.loads(result15.stdout.strip())
-            draft_text = phase15_payload.get("draft", "")
-            usage15 = phase15_payload.get("usage", usage15)
-            sdk_used = bool(usage15.get("prompt_tokens", 0))
-        except json.JSONDecodeError:
+            draft_text, usage15 = call_phase15_claude(
+                summary,
+                env,
+                claude_bin=claude_bin,
+                codex_bin=codex_bin,
+            )
+        except Exception as exc:
+            print(f"  codex exec Phase 1.5 failed: {exc}", file=sys.stderr)
+            return 1
+    else:
+        # Try phase1_5_draft.py first (uses openai SDK if available)
+        result15 = subprocess.run(
+            [sys.executable, str(SCRIPT_DIR / "phase1_5_draft.py")],
+            input=phase1_json_str,
+            capture_output=True,
+            text=True,
+            cwd=str(SKILL_DIR),
+        )
+        phase15_payload = {}
+
+        if result15.returncode == 0:
+            try:
+                phase15_payload = json.loads(result15.stdout.strip())
+                draft_text = phase15_payload.get("draft", "")
+                usage15 = phase15_payload.get("usage", usage15)
+                sdk_used = bool(usage15.get("prompt_tokens", 0))
+            except json.JSONDecodeError:
+                draft_text = ""
+                sdk_used = False
+        else:
             draft_text = ""
             sdk_used = False
-    else:
-        draft_text = ""
-        sdk_used = False
 
-    # If SDK produced no tokens (heuristic fallback), use claude CLI instead
-    if not sdk_used:
-        print(f"  SDK unavailable; calling claude CLI for Phase 1.5 ({phase15_model})", flush=True)
-        try:
-            summary = phase1_payload.get("data", phase1_payload)
-            draft_text, usage15 = call_phase15_claude(summary, env, claude_bin)
-        except Exception as exc:
-            print(f"  claude CLI Phase 1.5 failed: {exc}", file=sys.stderr)
-            # Fall back to the heuristic draft from phase1_5_draft.py
-            if phase15_payload:
-                draft_text = phase15_payload.get("draft", "")
-            if not draft_text:
-                print("Phase 1.5 produced no draft.", file=sys.stderr)
-                return 1
-            print("  Using heuristic fallback draft.", flush=True)
+        # If SDK produced no tokens (heuristic fallback), use model call path.
+        if not sdk_used:
+            print(f"  SDK unavailable; calling model API for Phase 1.5 ({phase15_model})", flush=True)
+            try:
+                summary = phase1_payload.get("data", phase1_payload)
+                draft_text, usage15 = call_phase15_claude(
+                    summary,
+                    env,
+                    claude_bin=claude_bin,
+                    codex_bin=codex_bin,
+                )
+            except Exception as exc:
+                print(f"  Phase 1.5 model call failed: {exc}", file=sys.stderr)
+                # Fall back to the heuristic draft from phase1_5_draft.py
+                if phase15_payload:
+                    draft_text = phase15_payload.get("draft", "")
+                if not draft_text:
+                    print("Phase 1.5 produced no draft.", file=sys.stderr)
+                    return 1
+                print("  Using heuristic fallback draft.", flush=True)
 
     timings["phase15"] = time.monotonic() - t0
     print(
@@ -967,12 +1151,17 @@ def run(
     log_tokens("1.5", phase15_model, usage15, env)
 
     # ── Phase 2: polished report ──────────────────────────────────────────────
-    phase2_model = env.get("PHASE2_MODEL", "sonnet")
     print(f"== Phase 2 ({phase2_model}): report ==", flush=True)
     t0 = time.monotonic()
     compact_json = json.dumps(compact_payload, separators=(",", ":"))
     try:
-        report_text, usage2 = call_phase2(compact_json, draft_text, env, claude_bin)
+        report_text, usage2 = call_phase2(
+            compact_json,
+            draft_text,
+            env,
+            claude_bin=claude_bin,
+            codex_bin=codex_bin,
+        )
     except Exception as exc:
         print(f"Phase 2 failed: {exc}", file=sys.stderr)
         return 1
@@ -1007,7 +1196,11 @@ def run(
     source_summary = build_source_summary(expanded_payload)
     sections = normalize_sections(sections)
     insights_meta = parse_insights_sections(expanded_payload.get("insights", []), env)
-    insights_quotes, _ = extract_insights_quote_entries(env, claude_bin=claude_bin)
+    insights_quotes, _ = extract_insights_quote_entries(
+        env,
+        claude_bin=claude_bin,
+        codex_bin=codex_bin,
+    )
     phase2_quotes = []
     if isinstance(sections.get("insights_quotes"), list):
         for item in sections.get("insights_quotes") or []:
@@ -1128,6 +1321,8 @@ def main() -> None:
                         help="Prompt to edit/prune Phase 2 JSON before rendering")
     parser.add_argument("--since", help="Limit git activity to commits since this date/time.")
     parser.add_argument("--refresh", action="store_true", help="Force phase1 cache rebuild.")
+    parser.add_argument("--codex", action="store_true",
+                        help="Set USE_CODEX=true for this run (OpenAI models route through codex exec).")
     parser.add_argument("--root", action="append", default=[],
                         help="Project root directory to scan (repeatable).")
     args = parser.parse_args()
@@ -1155,6 +1350,8 @@ def main() -> None:
                 child_cmd.extend(["--since", args.since])
             if args.refresh:
                 child_cmd.append("--refresh")
+            if args.codex:
+                child_cmd.append("--codex")
             for root in args.root:
                 child_cmd.extend(["--root", root])
             proc = subprocess.Popen(
@@ -1173,6 +1370,7 @@ def main() -> None:
             since=args.since,
             refresh=args.refresh,
             roots=args.root,
+            codex=args.codex,
         )
     )
 

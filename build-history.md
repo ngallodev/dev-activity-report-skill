@@ -2026,4 +2026,41 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+## Milestone 28 — Route OpenAI Phase Models Through Codex In `run_pipeline.py` (2026-02-19)
+
+**Problem**: `USE_CODEX=true` did not guarantee Codex execution when running `scripts/run_pipeline.py` directly. Phase 1.5 fallback and Phase 2 still called the Claude CLI, so OpenAI/Codex models were not consistently routed through `codex exec`.
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/run_pipeline.py`**
+- Added model routing helpers: `is_openai_model()`, `should_use_codex_for_model()`, and `find_codex_bin()`.
+- Added `codex_exec_call()` and a shared `call_model()` dispatcher.
+- Updated Phase 1.5 and Phase 2 call paths to use `call_model()`, so OpenAI-family models use `codex exec` when `USE_CODEX=true`.
+- In Codex-routed Phase 1.5, bypassed `phase1_5_draft.py` subprocess path and invoke model call path directly to avoid accidental non-Codex fallback.
+- Updated insights quote LLM selection path to use the same model dispatcher.
+- Added `--codex` CLI flag to `run_pipeline.py` to force `USE_CODEX=true` for one run.
+- Added binary preflight checks so missing required CLI (`codex` or `claude`) fails early with a clear error.
+
+**`tests/test_prompt_parsing_and_refresh.py`**
+- Updated mocked `extract_insights_quotes` signature for new optional `codex_bin` parameter.
+- Added regression coverage to assert:
+- Phase 2 routes to `codex_exec_call()` when `USE_CODEX=true` and model is OpenAI-family.
+- Phase 1.5 routes to `codex_exec_call()` under the same conditions.
+
+**`README.md`**
+- Updated standalone runner docs to include `--codex` usage and clarify mixed CLI requirements (`claude` vs `codex`) based on model routing.
+
+**`skills/dev-activity-report-skill/SKILL.md`**
+- Clarified Codex-mode behavior for `run_pipeline.py` vs `run_report.sh --codex`.
+
+### Testing
+- `pytest -q tests/test_prompt_parsing_and_refresh.py tests/test_integration_pipeline.py` (29 passed)
+- `pytest -q tests` (60 passed)
+
+### Benchmarks
+- Targeted suite runtime: `29 tests in 1.16s`
+- Full suite runtime: `60 tests in 1.13s`
+
+---
+
 *End of Build History*

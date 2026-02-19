@@ -59,7 +59,11 @@ class TestPhase2JsonParsing:
             return "{}", {"prompt_tokens": 1, "completion_tokens": 1}
 
         monkeypatch.setattr(run_pipeline, "claude_call", fake_claude_call)
-        monkeypatch.setattr(run_pipeline, "extract_insights_quotes", lambda env, claude_bin=None: ("", ""))
+        monkeypatch.setattr(
+            run_pipeline,
+            "extract_insights_quotes",
+            lambda env, claude_bin=None, codex_bin=None: ("", ""),
+        )
 
         env = {
             "RESUME_HEADER": "Name, Jan 2025 - Present",
@@ -72,6 +76,46 @@ class TestPhase2JsonParsing:
         assert '"sections"' in prompt
         assert "Summary JSON (compact):" in prompt
         assert "Draft bullets:" in prompt
+
+    def test_phase2_routes_to_codex_for_openai_model_when_use_codex_true(self, monkeypatch):
+        import run_pipeline
+
+        called = {"codex": 0, "claude": 0}
+
+        def fake_codex(prompt, model, codex_bin, sandbox="workspace-write", system_prompt=None, timeout=300):
+            called["codex"] += 1
+            return "{}", {"prompt_tokens": 0, "completion_tokens": 0}
+
+        def fake_claude(prompt, model, claude_bin, system_prompt=None, timeout=300, max_tokens=2048):
+            called["claude"] += 1
+            return "{}", {"prompt_tokens": 1, "completion_tokens": 1}
+
+        monkeypatch.setattr(run_pipeline, "codex_exec_call", fake_codex)
+        monkeypatch.setattr(run_pipeline, "claude_call", fake_claude)
+        monkeypatch.setattr(
+            run_pipeline,
+            "extract_insights_quotes",
+            lambda env, claude_bin=None, codex_bin=None: ("", ""),
+        )
+        monkeypatch.setattr(
+            run_pipeline,
+            "extract_insights_quote_entries",
+            lambda env, claude_bin=None, codex_bin=None: ([], ""),
+        )
+
+        env = {
+            "USE_CODEX": "true",
+            "PHASE2_MODEL": "gpt-5.1-codex-mini",
+        }
+        run_pipeline.call_phase2(
+            "{}",
+            "- draft",
+            env,
+            claude_bin="/usr/bin/claude",
+            codex_bin="/usr/bin/codex",
+        )
+        assert called["codex"] == 1
+        assert called["claude"] == 0
 
     def test_extract_insights_quotes_opt_in(self, tmp_path):
         import run_pipeline
@@ -188,6 +232,32 @@ class TestPhase15ThoroughMode:
 
         assert PHASE15_TERSE_TMPL in captured["prompt"]
         assert "lowlight" not in captured["prompt"].lower()
+
+    def test_run_pipeline_phase15_routes_to_codex_for_openai_model_when_use_codex_true(self):
+        import run_pipeline
+        import unittest.mock as mock
+
+        called = {"codex": 0, "claude": 0}
+
+        def fake_codex(prompt, model, codex_bin, sandbox="workspace-write", system_prompt=None, timeout=300):
+            called["codex"] += 1
+            return "- bullet", {"prompt_tokens": 0, "completion_tokens": 0}
+
+        def fake_claude(prompt, model, claude_bin, system_prompt=None, timeout=300, max_tokens=2048):
+            called["claude"] += 1
+            return "- bullet", {"prompt_tokens": 1, "completion_tokens": 1}
+
+        with mock.patch.object(run_pipeline, "codex_exec_call", fake_codex):
+            with mock.patch.object(run_pipeline, "claude_call", fake_claude):
+                run_pipeline.call_phase15_claude(
+                    self.SUMMARY,
+                    {"USE_CODEX": "true", "PHASE15_MODEL": "gpt-5.1-codex-mini"},
+                    claude_bin="/usr/bin/claude",
+                    codex_bin="/usr/bin/codex",
+                )
+
+        assert called["codex"] == 1
+        assert called["claude"] == 0
 
     def test_run_pipeline_thorough_prompt(self):
         from run_pipeline import PHASE15_THOROUGH_TMPL, call_phase15_claude

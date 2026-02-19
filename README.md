@@ -235,7 +235,7 @@ The runner passes `REPORT_SANDBOX` directly to `codex exec --sandbox`. Default i
 
 ### Run as a standalone script (no Claude Code session required)
 
-Use `run_pipeline.py` to run the full pipeline directly without the `codex exec` overhead or needing an active Claude Code session:
+Use `run_pipeline.py` to run the full pipeline directly without needing an active Claude Code session:
 
 ```bash
 # Background (default) — logs to ~/pipeline-run-<TS>.log
@@ -252,20 +252,23 @@ python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground --
 
 # Optional local review/edit pass before render (skips automatically in CI/non-TTY)
 python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground --interactive
+
+# Force USE_CODEX=true for this run; OpenAI models route via codex exec
+python3 skills/dev-activity-report-skill/scripts/run_pipeline.py --foreground --codex
 ```
 
 This script:
 - Runs `phase1_runner.py` as a subprocess (same logic, no overhead)
 - Supports `--since`, `--refresh`, and repeatable `--root` arguments (also env fallbacks: `REPORT_SINCE`, `APPS_DIRS`)
-- Calls `phase1_5_draft.py` for the Haiku draft; falls back to `claude --model haiku -p` if no `openai` SDK installed
-- Calls `claude --model sonnet -p` directly for Phase 2 and expects **JSON only**
+- Calls `phase1_5_draft.py` for the Haiku draft; falls back to model CLI call for Phase 1.5 when needed
+- Calls model CLI for Phase 2 and expects **JSON only** (`claude` by default; `codex exec` when `USE_CODEX=true` and model is OpenAI-family)
 - Optionally opens an interactive JSON curation step (`--interactive`) between Phase 2 and rendering
 - Renders outputs via `scripts/render_report.py` to `md`/`html` based on `REPORT_OUTPUT_FORMATS`
 - Runs Phase 3 cache verification inline in Python
 - Appends timing and token usage to `BENCHMARK_LOG_PATH` (default: `REPORT_OUTPUT_DIR/benchmarks.jsonl`)
 - Sends a desktop notification on completion
 
-**Requires**: `claude` CLI on `PATH` (authenticated). Does not require the `anthropic` or `openai` Python packages.
+**Requires**: `claude` CLI on `PATH` for Claude-model phases. If `USE_CODEX=true` with OpenAI models, also requires `codex` CLI on `PATH`. Does not require the `anthropic` or `openai` Python packages.
 
 #### Benchmark results (2026-02-17, 12 runs)
 
