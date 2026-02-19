@@ -592,13 +592,28 @@ def call_phase2(
 
 
 # ── Phase 1.5 via claude CLI (when no SDK) ────────────────────────────────────
-PHASE15_PROMPT_TMPL = """\
+PHASE15_TERSE_TMPL = """\
 You are a terse assistant drafting a dev activity report.
 Input JSON uses abbreviated keys. Write a bullet draft only; no commentary.
 
 Output:
 - 5–8 bullets (concise)
 - 2 sentence overview
+"""
+
+PHASE15_THOROUGH_TMPL = """\
+You are a sharp-eyed engineering analyst drafting a dev activity report.
+Input JSON uses abbreviated keys. Be opinionated, specific, and colorful — \
+call out what's impressive, what looks risky or neglected, and what deserves \
+more attention. Speak plainly; no hedging.
+
+Output (same structure as terse mode, richer content):
+- 8–12 bullets covering highlights AND lowlights
+  • Highlights: quantify wins, name specific projects/commits/themes
+  • Lowlights: flag stale projects, missing tests, low commit counts,
+    or anything that would raise a hiring-manager's eyebrow
+- 3–4 sentence overview with an honest assessment of the period's output
+- 2–3 'watch-out' notes: things that need attention before the next report
 """
 
 
@@ -608,7 +623,8 @@ def call_phase15_claude(
     claude_bin: str,
 ) -> tuple[str, dict[str, int]]:
     model = env.get("PHASE15_MODEL", "haiku")
-    prompt = PHASE15_PROMPT_TMPL
+    thorough = env.get("PHASE15_THOROUGH", "false").strip().lower() in {"1", "true", "yes", "on"}
+    prompt = PHASE15_THOROUGH_TMPL if thorough else PHASE15_TERSE_TMPL
     extra_rules = (env.get("PHASE15_RULES_EXTRA") or env.get("PHASE15_PROMPT_PREFIX") or "").strip()
     if extra_rules:
         prompt = (

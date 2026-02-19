@@ -132,6 +132,83 @@ class TestPhase2JsonParsing:
         assert parsed["sections"][0]["entry_date"] == "2026-02-18"
 
 
+class TestPhase15ThoroughMode:
+    """PHASE15_THOROUGH flag switches between terse and thorough prompt paths."""
+
+    SUMMARY = {"p": [{"n": "demo", "cc": 3, "hl": ["bugfix"]}]}
+
+    def test_terse_prompt_default(self):
+        from phase1_5_draft import build_prompt, TERSE_PROMPT
+
+        prompt = build_prompt(self.SUMMARY, {})
+        assert TERSE_PROMPT in prompt
+        assert "5–8 bullets" in prompt
+        assert "lowlight" not in prompt.lower()
+
+    def test_thorough_prompt_when_flag_set(self):
+        from phase1_5_draft import build_prompt, THOROUGH_PROMPT
+
+        for val in ("true", "1", "yes", "on"):
+            prompt = build_prompt(self.SUMMARY, {"PHASE15_THOROUGH": val})
+            assert THOROUGH_PROMPT in prompt
+            assert "lowlight" in prompt.lower()
+            assert "watch-out" in prompt.lower()
+
+    def test_thorough_false_still_terse(self):
+        from phase1_5_draft import build_prompt, TERSE_PROMPT
+
+        prompt = build_prompt(self.SUMMARY, {"PHASE15_THOROUGH": "false"})
+        assert TERSE_PROMPT in prompt
+
+    def test_summary_always_appended_last(self):
+        from phase1_5_draft import build_prompt
+
+        for thorough in ("false", "true"):
+            prompt = build_prompt(self.SUMMARY, {"PHASE15_THOROUGH": thorough})
+            assert prompt.endswith(
+                "Summary JSON (read-only context; do not rewrite it):\n"
+                + __import__("json").dumps(self.SUMMARY, separators=(",", ":"))
+            )
+
+    def test_run_pipeline_terse_prompt(self):
+        from run_pipeline import PHASE15_TERSE_TMPL, call_phase15_claude
+
+        captured = {}
+
+        import run_pipeline
+        original = run_pipeline.claude_call
+
+        def fake_call(prompt, model, claude_bin, system_prompt=None, timeout=180):
+            captured["prompt"] = prompt
+            return "- bullet", {}
+
+        import unittest.mock as mock
+        with mock.patch.object(run_pipeline, "claude_call", fake_call):
+            call_phase15_claude(self.SUMMARY, {}, "/usr/bin/claude")
+
+        assert PHASE15_TERSE_TMPL in captured["prompt"]
+        assert "lowlight" not in captured["prompt"].lower()
+
+    def test_run_pipeline_thorough_prompt(self):
+        from run_pipeline import PHASE15_THOROUGH_TMPL, call_phase15_claude
+
+        captured = {}
+
+        import run_pipeline
+        import unittest.mock as mock
+
+        def fake_call(prompt, model, claude_bin, system_prompt=None, timeout=180):
+            captured["prompt"] = prompt
+            return "- bullet", {}
+
+        with mock.patch.object(run_pipeline, "claude_call", fake_call):
+            call_phase15_claude(self.SUMMARY, {"PHASE15_THOROUGH": "true"}, "/usr/bin/claude")
+
+        assert PHASE15_THOROUGH_TMPL in captured["prompt"]
+        assert "lowlight" in captured["prompt"].lower()
+        assert "watch-out" in captured["prompt"].lower()
+
+
 class TestThoroughRefresh:
     """Refresh utility computes expected marker/cache actions."""
 

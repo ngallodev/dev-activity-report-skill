@@ -1923,4 +1923,45 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+## Milestone 22 — PHASE15_THOROUGH: opinionated draft mode for Phase 1.5 (2026-02-18)
+
+**Feature**: Added `PHASE15_THOROUGH=true` flag that switches Phase 1.5 from terse bullet draft to an opinionated, colorful assessment including highlights, lowlights, and watch-out notes.
+
+### Changes
+
+**`scripts/phase1_5_draft.py`**
+- Extracted `TERSE_PROMPT` and `THOROUGH_PROMPT` as module-level constants
+- `build_prompt()` reads `PHASE15_THOROUGH` from env (accepts `true/1/yes/on`); selects prompt accordingly
+- `call_model()` reads the same flag; sets a matching system message and uses `temperature=0.5` (vs. `0.2`) in thorough mode to allow more expressive output
+
+**`scripts/run_pipeline.py`**
+- Extracted `PHASE15_TERSE_TMPL` and `PHASE15_THOROUGH_TMPL` as module-level constants
+- `call_phase15_claude()` reads `PHASE15_THOROUGH` and selects the matching template — covers the Claude CLI fallback path
+
+**`references/examples/.env.example`**
+- Added `PHASE15_THOROUGH=false` with comment explaining the two modes
+
+**`SKILL.md`**
+- Added `PHASE15_THOROUGH` row to the configuration table
+
+**`tests/test_prompt_parsing_and_refresh.py`**
+- Added `TestPhase15ThoroughMode` class (6 tests):
+  - terse prompt is default
+  - thorough prompt selected for all truthy values (`true/1/yes/on`)
+  - `false` stays terse
+  - summary JSON always appended last regardless of mode
+  - `run_pipeline.call_phase15_claude` uses terse template by default
+  - `run_pipeline.call_phase15_claude` uses thorough template when flagged
+
+### Thorough prompt characteristics
+- 8–12 bullets vs. 5–8 (terse)
+- Explicit highlights (wins, quantified) AND lowlights (stale projects, low commit counts, missing tests)
+- 3–4 sentence honest overview vs. 2 sentence terse
+- 2–3 watch-out notes for items needing attention
+
+### Result
+- 58/58 tests passing
+
+---
+
 *End of Build History*

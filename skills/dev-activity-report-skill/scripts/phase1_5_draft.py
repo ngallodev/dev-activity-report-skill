@@ -42,13 +42,32 @@ def load_env() -> dict[str, str]:
     return env
 
 
+TERSE_PROMPT = (
+    "You are a terse assistant drafting a dev activity report. "
+    "Input JSON uses abbreviated keys (see PAYLOAD_REFERENCE). "
+    "Write a bullet draft only; no commentary.\n\n"
+    "Output:\n- 5–8 bullets (concise)\n- 2 sentence overview"
+)
+
+THOROUGH_PROMPT = (
+    "You are a sharp-eyed engineering analyst drafting a dev activity report. "
+    "Input JSON uses abbreviated keys (see PAYLOAD_REFERENCE). "
+    "Be opinionated, specific, and colorful — call out what's impressive, "
+    "what looks risky or neglected, and what deserves more attention. "
+    "Speak plainly; no hedging.\n\n"
+    "Output (same JSON schema as terse mode, richer content):\n"
+    "- 8–12 bullets covering highlights AND lowlights\n"
+    "  • Highlights: quantify wins, name specific projects/commits/themes\n"
+    "  • Lowlights: flag stale projects, missing tests, low commit counts, "
+    "    or anything that would raise a hiring-manager's eyebrow\n"
+    "- 3–4 sentence overview with an honest assessment of the period's output\n"
+    "- 2–3 'watch-out' notes: things that need attention before the next report"
+)
+
+
 def build_prompt(summary: Dict[str, Any], env: dict[str, str]) -> str:
-    prompt = (
-        "You are a terse assistant drafting a dev activity report. "
-        "Input JSON uses abbreviated keys (see PAYLOAD_REFERENCE). "
-        "Write a bullet draft only; no commentary.\n\n"
-        "Output:\n- 5–8 bullets (concise)\n- 2 sentence overview"
-    )
+    thorough = env.get("PHASE15_THOROUGH", "false").strip().lower() in {"1", "true", "yes", "on"}
+    prompt = THOROUGH_PROMPT if thorough else TERSE_PROMPT
     extra_rules = (env.get("PHASE15_RULES_EXTRA") or env.get("PHASE15_PROMPT_PREFIX") or "").strip()
     if extra_rules:
         prompt = (
@@ -68,14 +87,20 @@ def call_model(prompt: str, env: dict[str, str], summary: Dict[str, Any]) -> tup
     base = env.get("PHASE15_API_BASE") or env.get("OPENAI_API_BASE")
     api_key = env.get("PHASE15_API_KEY") or env.get("OPENAI_API_KEY")
     subscription_mode = env.get("SUBSCRIPTION_MODE", "false").lower() == "true"
+    thorough = env.get("PHASE15_THOROUGH", "false").strip().lower() in {"1", "true", "yes", "on"}
+    system_msg = (
+        "You are a sharp-eyed engineering analyst. Be opinionated and specific."
+        if thorough else
+        "Draft concise dev activity bullets."
+    )
 
     if OpenAI and (api_key or subscription_mode):
         client = OpenAI(api_key=api_key or None, base_url=base) if base else OpenAI(api_key=api_key or None)
         resp = client.chat.completions.create(
             model=model,
-            messages=[{"role": "system", "content": "Draft concise dev activity bullets."},
+            messages=[{"role": "system", "content": system_msg},
                       {"role": "user", "content": prompt}],
-            temperature=0.2,
+            temperature=0.5 if thorough else 0.2,
         )
         u = resp.usage
         text = resp.choices[0].message.content.strip()

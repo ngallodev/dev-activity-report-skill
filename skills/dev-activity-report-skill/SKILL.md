@@ -45,6 +45,7 @@ This copies the example if needed, attempts auto-fill from environment, and prom
 | `PRICE_PHASE15_IN/OUT`, `PRICE_PHASE2_IN/OUT` | per 1M tokens | cost calc |
 | `PHASE15_API_KEY`, `PHASE15_API_BASE`, `PHASE2_API_KEY`, `PHASE2_API_BASE` | optional | leave blank under subscription |
 | `PHASE1_PROMPT_PREFIX`, `PHASE15_PROMPT_PREFIX`, `PHASE2_PROMPT_PREFIX`, `PHASE3_PROMPT_PREFIX` | _(blank)_ | legacy prefix keys; prefer rule-injection keys for structured phases |
+| `PHASE15_THOROUGH` | `false` | set `true` for opinionated highlights + lowlights + watch-out notes in Phase 1.5 |
 | `PHASE15_RULES_EXTRA`, `PHASE2_RULES_EXTRA` | _(blank)_ | custom rules injected after stock prompt/schema |
 | `INCLUDE_CLAUDE_INSIGHTS_QUOTES` | `false` | include quoted excerpts from `INSIGHTS_REPORT_PATH` in Phase 2 context |
 | `CLAUDE_INSIGHTS_QUOTES_MAX`, `CLAUDE_INSIGHTS_QUOTES_MAX_CHARS` | `8`, `2000` | caps for quote count and quote text size |
