@@ -1902,4 +1902,25 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+## Milestone 21 — Safe .env sync: merge new keys, never overwrite (2026-02-18)
+
+**Problem**: `sync_skill.sh` used `rsync --delete` with `.env` not excluded, so every sync overwrote the installed `.env` entirely — wiping any user-customized values (paths, API keys, models).
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/sync_skill.sh`**
+- Added `--exclude=".env"` to both `RSYNC_EXCLUDES` and `DIFF_EXCLUDES`
+- After rsync, a dedicated `.env` merge step runs:
+  - **If no `.env` exists at the install location**: copy from `.env.example`
+  - **If `.env` already exists**: scan `.env.example` for keys absent in the installed file and append them with their default values; existing values are never touched
+  - Reports each added key, or "No .env changes needed" if nothing is new
+- Diff step now excludes `.env` (user config is expected to differ)
+
+### Result
+- Idempotent: running sync twice in a row produces identical output
+- User values survive upgrades; new keys added by future versions are adopted automatically
+- 52/52 tests passing
+
+---
+
 *End of Build History*

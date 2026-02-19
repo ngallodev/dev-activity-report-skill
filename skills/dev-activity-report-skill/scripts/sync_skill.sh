@@ -37,9 +37,10 @@ for arg in "$@"; do
   esac
 done
 
-# Files/dirs to exclude from sync (runtime artifacts and caches)
-# .env is included intentionally — no secrets when SUBSCRIPTION_MODE=true
+# Files/dirs to exclude from sync (runtime artifacts, caches, and user config)
+# .env is excluded from rsync — handled separately below to preserve user values.
 RSYNC_EXCLUDES=(
+  --exclude=".env"
   --exclude=".phase1-cache.json"
   --exclude=".phase1-cache.tmp"
   --exclude=".dev-report-cache.md"
@@ -77,6 +78,41 @@ if [[ $CHECK_ONLY -eq 0 ]]; then
     exit 0
   fi
   echo "  OK sync done"
+
+  # ----------------------------------------------------------------
+  # .env — merge new keys from .env.example; never overwrite values.
+  # ----------------------------------------------------------------
+  INSTALLED_ENV="$INSTALL_DIR/.env"
+  EXAMPLE_ENV="$SKILL_DIR/references/examples/.env.example"
+
+  if [[ ! -f "$INSTALLED_ENV" ]]; then
+    if [[ -f "$EXAMPLE_ENV" ]]; then
+      cp "$EXAMPLE_ENV" "$INSTALLED_ENV"
+      echo "  .env created from .env.example at $INSTALLED_ENV"
+    else
+      echo "  (no .env.example found; skipping .env creation)"
+    fi
+  else
+    # Add keys from .env.example that are missing in the installed .env.
+    if [[ -f "$EXAMPLE_ENV" ]]; then
+      added=0
+      while IFS= read -r line; do
+        # Skip blank lines and comments
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        key="${line%%=*}"
+        [[ -z "$key" ]] && continue
+        # Only add if key is entirely absent from the installed .env
+        if ! grep -q "^${key}=" "$INSTALLED_ENV" 2>/dev/null; then
+          echo "$line" >> "$INSTALLED_ENV"
+          echo "  .env: added new key: $key"
+          added=$((added + 1))
+        fi
+      done < "$EXAMPLE_ENV"
+      if [[ $added -eq 0 ]]; then
+        echo "  No .env changes needed at $INSTALLED_ENV."
+      fi
+    fi
+  fi
 else
   echo "  (--check-only: skipping rsync)"
 fi
@@ -93,8 +129,9 @@ if [[ ! -d "$INSTALL_DIR" ]]; then
   exit 2
 fi
 
-# Build exclude args for diff (same exclusion list)
+# Build exclude args for diff (same exclusion list; .env excluded — user config may differ)
 DIFF_EXCLUDES=(
+  --exclude=".env"
   --exclude=".phase1-cache.json"
   --exclude=".phase1-cache.tmp"
   --exclude=".dev-report-cache.md"
