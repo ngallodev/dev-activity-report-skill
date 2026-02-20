@@ -57,7 +57,9 @@ def load_env_file(path: Path) -> dict[str, str]:
 def load_env() -> dict[str, str]:
     env = load_env_file(SKILL_DIR / ".env")
     claude_home = expand_path(env.get("CLAUDE_HOME", "~/.claude"))
-    installed_env = claude_home / "skills" / "dev-activity-report-skill" / ".env"
+    installed_env = claude_home / "skills" / "dev-activity-report" / ".env"
+    if not installed_env.exists():
+        installed_env = claude_home / "skills" / "dev-activity-report-skill" / ".env"
     installed = load_env_file(installed_env)
     # Local skill .env takes precedence, then installed .env.
     merged = installed
@@ -202,13 +204,15 @@ def main() -> None:
     roots = resolve_roots(env, args.root)
     claude_home = expand_path(env.get("CLAUDE_HOME", "~/.claude"))
     codex_home = expand_path(env.get("CODEX_HOME", "~/.codex"))
-    installed_skill = claude_home / "skills" / "dev-activity-report-skill"
+    installed_skill = claude_home / "skills" / "dev-activity-report"
+    legacy_installed_skill = claude_home / "skills" / "dev-activity-report-skill"
 
     plan = Plan()
 
     # Skill-local and installed-skill caches.
     collect_skill_cache_targets(plan, SKILL_DIR)
     collect_skill_cache_targets(plan, installed_skill)
+    collect_skill_cache_targets(plan, legacy_installed_skill)
 
     # Home-level codex cache used by this application.
     plan.add_delete(codex_home / ".dev-report-cache.md", "cache_files")

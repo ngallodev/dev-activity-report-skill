@@ -22,6 +22,7 @@ import html
 import json
 import os
 import re
+import shlex
 import shutil
 import tempfile
 import urllib.parse
@@ -335,10 +336,15 @@ def extract_insights_quote_entries(
 
     max_quotes = int(env.get("CLAUDE_INSIGHTS_QUOTES_MAX", 8) or 8)
     max_chars = int(env.get("CLAUDE_INSIGHTS_QUOTES_MAX_CHARS", 2000) or 2000)
+    allow_heuristic_fallback = env_bool(
+        env,
+        "INSIGHTS_QUOTES_ALLOW_HEURISTIC_FALLBACK",
+        default=False,
+    )
     source_path = str(path)
     source_link = path_to_file_url(source_path)
 
-    # Prefer LLM-based extraction to avoid headings/labels; fall back to heuristic if needed.
+    # LLM-first extraction; heuristic fallback is opt-in only.
     quotes: list[str] = []
     if claude_bin or codex_bin:
         model = env.get("INSIGHTS_QUOTES_MODEL", env.get("PHASE15_MODEL", "haiku"))
@@ -372,10 +378,23 @@ def extract_insights_quote_entries(
                 for q in raw_quotes:
                     if isinstance(q, str) and q.strip():
                         quotes.append(q.strip())
-        except Exception:
+        except Exception as exc:
+            if not allow_heuristic_fallback:
+                print(
+                    f"[insights] LLM quote extraction failed; heuristic fallback disabled: {exc}",
+                    file=sys.stderr,
+                )
+                return [], source_path
             quotes = []
+    else:
+        if not allow_heuristic_fallback:
+            print(
+                "[insights] No LLM runtime available for quote extraction; heuristic fallback disabled.",
+                file=sys.stderr,
+            )
+            return [], source_path
 
-    if not quotes:
+    if not quotes and allow_heuristic_fallback:
         keywords = (
             "usage", "pattern", "wins", "friction", "outcomes", "tool",
             "session", "workflow", "insight", "delegate", "automation", "report",
@@ -399,6 +418,8 @@ def extract_insights_quote_entries(
             if is_candidate and cleaned not in candidates:
                 candidates.append(cleaned)
         quotes = candidates
+    elif not quotes:
+        return [], source_path
     selected: list[dict[str, str]] = []
     total = 0
     for line in quotes:
@@ -578,6 +599,7 @@ def codex_exec_call(
     prompt: str,
     model: str,
     codex_bin: str,
+    env: dict[str, str],
     sandbox: str = "workspace-write",
     system_prompt: str | None = None,
     timeout: int = 300,
@@ -590,19 +612,33 @@ def codex_exec_call(
     with tempfile.NamedTemporaryFile(prefix="dar-codex-last-", suffix=".txt", delete=False) as tmp:
         last_message_path = tmp.name
 
+    extra_flags_raw = env.get("CODEX_EXEC_FLAGS", "").strip()
+    extra_flags = shlex.split(extra_flags_raw) if extra_flags_raw else []
+    if env_bool(env, "CODEX_SKIP_GIT_REPO_CHECK", default=False):
+        if "--skip-git-repo-check" not in extra_flags:
+            extra_flags.append("--skip-git-repo-check")
+    add_dirs_raw = (env.get("CODEX_ADD_DIRS", "") or "").strip()
+    add_dirs = []
+    if add_dirs_raw:
+        for token in add_dirs_raw.replace(",", " ").replace(":", " ").split():
+            value = token.strip()
+            if value:
+                add_dirs.append(value)
+
     cmd = [
         codex_bin,
         "exec",
         "-m",
         model,
-        "--approval",
-        "never",
         "--sandbox",
         sandbox,
         "--output-last-message",
         last_message_path,
-        "-",
     ]
+    cmd.extend(extra_flags)
+    for add_dir in add_dirs:
+        cmd.extend(["--add-dir", add_dir])
+    cmd.append("-")
     try:
         result = subprocess.run(
             cmd,
@@ -612,8 +648,15 @@ def codex_exec_call(
             timeout=timeout,
         )
         if result.returncode != 0:
+            err = (result.stderr or "").strip()
+            if "Not inside a trusted directory" in err and "--skip-git-repo-check" not in extra_flags:
+                raise RuntimeError(
+                    "codex exec failed: Not inside a trusted directory. "
+                    "Set CODEX_SKIP_GIT_REPO_CHECK=true or add "
+                    'CODEX_EXEC_FLAGS="--skip-git-repo-check" in .env.'
+                )
             raise RuntimeError(
-                f"codex exec failed (rc={result.returncode}):\n{result.stderr.strip()}"
+                f"codex exec failed (rc={result.returncode}):\n{err}"
             )
         last_message = Path(last_message_path)
         if last_message.exists():
@@ -648,6 +691,7 @@ def call_model(
             prompt=prompt,
             model=model,
             codex_bin=codex_bin,
+            env=env,
             sandbox=sandbox,
             system_prompt=system_prompt,
             timeout=timeout,
@@ -952,8 +996,7 @@ def run(
 
     if not ENV_FILE.exists():
         setup = SCRIPT_DIR / "setup_env.py"
-        flag = [] if foreground else ["--non-interactive"]
-        subprocess.run([sys.executable, str(setup)] + flag, check=False)
+        subprocess.run([sys.executable, str(setup)], check=False)
         env = load_env()
 
     apps_roots = resolve_scan_roots(env, cli_roots=roots)

@@ -205,6 +205,7 @@ PHASE2_RULES_EXTRA=
 INCLUDE_CLAUDE_INSIGHTS_QUOTES=false
 CLAUDE_INSIGHTS_QUOTES_MAX=8
 CLAUDE_INSIGHTS_QUOTES_MAX_CHARS=2000
+INSIGHTS_QUOTES_ALLOW_HEURISTIC_FALLBACK=false
 # Optional log paths (defaults to REPORT_OUTPUT_DIR if omitted)
 # TOKEN_LOG_PATH=~/token_economics.log
 # BUILD_LOG_PATH=~/build.log
@@ -232,6 +233,9 @@ That's it. Claude reads your `.env`, delegates data gathering to Haiku, synthesi
 ### Sandbox + workspace behavior
 
 The runner passes `REPORT_SANDBOX` directly to `codex exec --sandbox`. Default is `workspace-write`. The Codex workspace is the current working directory where the run is invoked; paths outside that workspace may be blocked under `workspace-write`. If you choose a more permissive sandbox (for example `none`, if your Codex build supports it), you can scan and write outside the workspace. When any phase uses a non-Claude model and paths fall outside the workspace, the runner prints a warning to stderr.
+If your Codex CLI version requires explicit approval-policy flags, set `CODEX_EXEC_FLAGS` (for example: `CODEX_EXEC_FLAGS="--ask-for-approval never"`).
+If Codex rejects the workspace as untrusted, set `CODEX_SKIP_GIT_REPO_CHECK=true` (or include `--skip-git-repo-check` in `CODEX_EXEC_FLAGS`).
+If scan/output paths are outside the workspace under `workspace-write`, set `CODEX_ADD_DIRS` (comma/space/colon separated) so `--add-dir` is passed for each path.
 
 ### Run as a standalone script (no Claude Code session required)
 

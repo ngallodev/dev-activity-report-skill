@@ -50,6 +50,7 @@ This copies the example if needed, attempts auto-fill from environment, and prom
 | `INCLUDE_CLAUDE_INSIGHTS_QUOTES` | `false` | include quoted excerpts from `INSIGHTS_REPORT_PATH` in Phase 2 context |
 | `CLAUDE_INSIGHTS_QUOTES_MAX`, `CLAUDE_INSIGHTS_QUOTES_MAX_CHARS` | `8`, `2000` | caps for quote count and quote text size |
 | `INSIGHTS_QUOTES_MODEL` | `${PHASE15_MODEL}` | model used to select insights quotes |
+| `INSIGHTS_QUOTES_ALLOW_HEURISTIC_FALLBACK` | `false` | if true, allows non-LLM heuristic extraction when LLM extraction is unavailable/fails |
 
 ---
 
@@ -105,7 +106,7 @@ scripts/run_report.sh          # background, silent, notify on completion
 scripts/run_report.sh --foreground
 ```
 
-**Codex mode** (power-user opt-in): set `USE_CODEX=true` in `.env` or pass `--codex`. In `run_pipeline.py`, OpenAI-family phase models route through `codex exec --approval never --sandbox workspace-write`; Claude models continue through the Claude CLI. In `run_report.sh --codex`, all model phases route through `codex exec`.
+**Codex mode** (power-user opt-in): set `USE_CODEX=true` in `.env` or pass `--codex`. In `run_pipeline.py`, OpenAI-family phase models route through `codex exec --sandbox workspace-write`; Claude models continue through the Claude CLI. In `run_report.sh --codex`, all model phases route through `codex exec`. If your Codex build needs explicit approval policy flags, set `CODEX_EXEC_FLAGS` in `.env` (example: `CODEX_EXEC_FLAGS="--ask-for-approval never"`). If Codex blocks execution due to an untrusted directory, set `CODEX_SKIP_GIT_REPO_CHECK=true` (or include `--skip-git-repo-check` in `CODEX_EXEC_FLAGS`). If required paths are outside the workspace with `REPORT_SANDBOX=workspace-write`, set `CODEX_ADD_DIRS` (comma/space/colon separated) so each path is passed via `--add-dir`.
 
 ---
 

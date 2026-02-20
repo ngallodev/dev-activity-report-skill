@@ -1,4 +1,4 @@
-# Test Suite for dev-activity-report-skill
+# Test Suite for dev-activity-report
 
 A token-efficient, focused test suite covering the most fragile and critical parts of the application.
 

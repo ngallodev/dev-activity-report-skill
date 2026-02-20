@@ -2063,4 +2063,225 @@ Full independent review conducted against `phase1_runner.py`, `run_pipeline.py`,
 
 ---
 
+## Milestone 29 — Codex Approval Flag Compatibility Fix (2026-02-19)
+
+**Problem**: `codex exec` failed on environments where `--approval` is not a valid flag. The pipeline had hardcoded `--approval never` in both `run_pipeline.py` and `run_report.sh`.
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/run_pipeline.py`**
+- Removed hardcoded `--approval never` from `codex_exec_call()`.
+- Added `CODEX_EXEC_FLAGS` support (parsed via `shlex.split`) so Codex CLI-specific flags can be injected per environment without code changes.
+- Preserved existing sandbox behavior (`--sandbox $REPORT_SANDBOX`) and output capture (`--output-last-message`).
+
+**`skills/dev-activity-report-skill/scripts/run_report.sh`**
+- Removed hardcoded `--approval never` from all Codex phase invocations (Phase 1, 1.5, 2, 3).
+- Added `CODEX_EXEC_FLAGS` support with array expansion and threaded it through every `codex exec` call site.
+
+**`skills/dev-activity-report-skill/SKILL.md`**
+- Updated Codex mode docs to remove fixed `--approval never` wording.
+- Documented `CODEX_EXEC_FLAGS` with an example (`--ask-for-approval never`) for CLI-version compatibility.
+
+**`README.md`**
+- Added `CODEX_EXEC_FLAGS` note in sandbox/workspace section for Codex CLI compatibility.
+
+**`tests/test_prompt_parsing_and_refresh.py`**
+- Updated Codex routing test doubles to accept the new `env` argument in `codex_exec_call()`.
+
+### Testing
+- `python3 -m py_compile skills/dev-activity-report-skill/scripts/run_pipeline.py` (pass)
+- `bash -n skills/dev-activity-report-skill/scripts/run_report.sh` (pass)
+- `pytest -q tests/test_prompt_parsing_and_refresh.py tests/test_integration_pipeline.py` (29 passed)
+- `pytest -q tests` (60 passed)
+
+### Benchmarks
+- Targeted suite runtime: `29 tests in 1.08s`
+- Full suite runtime: `60 tests in 1.45s`
+
+---
+
+## Milestone 30 — Handle Codex Trusted-Directory Gate (2026-02-19)
+
+**Problem**: Codex Phase 1.5 failed in some environments with: `Not inside a trusted directory and --skip-git-repo-check was not specified.`
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/run_pipeline.py`**
+- Added `CODEX_SKIP_GIT_REPO_CHECK` support in `codex_exec_call()`.
+- When enabled, `--skip-git-repo-check` is appended to Codex exec args (without duplicating if already present in `CODEX_EXEC_FLAGS`).
+- Improved runtime error text for this specific failure mode with explicit `.env` remediation guidance.
+
+**`skills/dev-activity-report-skill/scripts/run_report.sh`**
+- Added `CODEX_SKIP_GIT_REPO_CHECK` environment option.
+- Merges `CODEX_EXEC_FLAGS` plus conditional `--skip-git-repo-check` for all Codex phases.
+
+**`README.md`**
+- Added troubleshooting note for untrusted-directory Codex failure and the `CODEX_SKIP_GIT_REPO_CHECK=true` fix.
+
+**`skills/dev-activity-report-skill/SKILL.md`**
+- Documented trusted-directory workaround (`CODEX_SKIP_GIT_REPO_CHECK` or `CODEX_EXEC_FLAGS`).
+
+### Testing
+- `python3 -m py_compile skills/dev-activity-report-skill/scripts/run_pipeline.py` (pass)
+- `bash -n skills/dev-activity-report-skill/scripts/run_report.sh` (pass)
+- `pytest -q tests/test_prompt_parsing_and_refresh.py tests/test_integration_pipeline.py` (29 passed)
+- `pytest -q tests` (60 passed)
+
+### Benchmarks
+- Targeted suite runtime: `29 tests in 0.81s`
+- Full suite runtime: `60 tests in 1.10s`
+
+---
+
+## Milestone 31 — Support Codex `--add-dir` For Outside-Workspace Scans (2026-02-19)
+
+**Problem**: Codex runs failed under `REPORT_SANDBOX=workspace-write` when scan roots were outside the workspace (example: `/lump/apps`, `/usr/local/lib/mariadb`), even when Codex CLI supports `--add-dir`.
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/run_report.sh`**
+- Added `CODEX_ADD_DIRS` env support (comma/space/colon-separated list).
+- Appends each value as `--add-dir <path>` to all Codex phase invocations.
+- Updated preflight workspace check to treat `CODEX_ADD_DIRS` roots as allowed alongside the main workspace, preventing false blocking before execution.
+
+**`skills/dev-activity-report-skill/scripts/run_pipeline.py`**
+- Added `CODEX_ADD_DIRS` handling in `codex_exec_call()` so direct `run_pipeline.py --codex` runs pass `--add-dir` entries consistently.
+
+**`README.md`**
+- Documented `CODEX_ADD_DIRS` for workspace-write mode when scan/output paths are outside the workspace.
+
+**`skills/dev-activity-report-skill/SKILL.md`**
+- Added Codex-mode guidance for outside-workspace access using `CODEX_ADD_DIRS`.
+
+### Testing
+- `python3 -m py_compile skills/dev-activity-report-skill/scripts/run_pipeline.py` (pass)
+- `bash -n skills/dev-activity-report-skill/scripts/run_report.sh` (pass)
+- `pytest -q tests/test_prompt_parsing_and_refresh.py tests/test_integration_pipeline.py` (29 passed)
+- `pytest -q tests` (60 passed)
+
+### Benchmarks
+- Targeted suite runtime: `29 tests in 1.35s`
+- Full suite runtime: `60 tests in 1.17s`
+
+---
+
+## Milestone 32 — Default Insights Quotes To LLM-Only (No Python Fallback) (2026-02-19)
+
+**Problem**: Insights quote extraction still had a Python heuristic fallback path, which produced non-LLM-derived insights when model extraction was unavailable or failed.
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/run_pipeline.py`**
+- Changed `extract_insights_quote_entries()` to LLM-only behavior by default.
+- Added `INSIGHTS_QUOTES_ALLOW_HEURISTIC_FALLBACK` env gate (default `false`).
+- When fallback is disabled:
+- if no LLM runtime is available, returns no insights quotes and logs a clear stderr note.
+- if LLM extraction fails, returns no insights quotes and logs a clear stderr note.
+- Kept the prior heuristic extractor behind the explicit opt-in flag for compatibility.
+
+**`tests/test_prompt_parsing_and_refresh.py`**
+- Updated insights quote tests to mock LLM extraction via `call_model`.
+- Added regression test proving default behavior does not use heuristic fallback when LLM runtime is absent.
+
+**`skills/dev-activity-report-skill/SKILL.md`**
+- Added `INSIGHTS_QUOTES_ALLOW_HEURISTIC_FALLBACK` to env configuration table.
+
+**`README.md`**
+- Added `INSIGHTS_QUOTES_ALLOW_HEURISTIC_FALLBACK=false` to configuration snippet.
+
+### Testing
+- `python3 -m py_compile skills/dev-activity-report-skill/scripts/run_pipeline.py tests/test_prompt_parsing_and_refresh.py` (pass)
+- `pytest -q tests/test_prompt_parsing_and_refresh.py tests/test_integration_pipeline.py` (30 passed)
+- `pytest -q tests` (61 passed)
+
+### Benchmarks
+- Targeted suite runtime: `30 tests in 1.08s`
+- Full suite runtime: `61 tests in 1.24s`
+
+---
+
+## Milestone 33 — Fix Real Run Regressions In `run_report.sh` Codex Path (2026-02-19)
+
+**Problem**: A real foreground run log exposed two production gaps:
+- runner bootstrap called `setup_env.py --non-interactive` (unsupported flag; hard failure)
+- Codex path Phase 2.5 assembled report JSON without the `insights` merge logic used by `run_pipeline.py`, so insights metadata/quotes could be missing even when requested.
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/run_report.sh`**
+- Removed unsupported setup arg and now calls `setup_env.py` with supported defaults.
+- Tightened Codex prompts for Phase 1/1.5/2:
+- explicit `python3` (never `python`) guidance
+- explicit prohibition on `.env`/unrelated file probing in synthesis phases
+- explicit run-time boolean for `INCLUDE_CLAUDE_INSIGHTS_QUOTES`
+- Updated Phase 2.5 inline Python assembly to match `run_pipeline.py` behavior:
+- imports and uses `parse_insights_sections()` and `extract_insights_quote_entries()`
+- merges `sections.insights_quotes` with extracted insights quotes
+- writes top-level `insights` block (`source`, `sections`, `quotes`) into final report JSON
+- Exported required env vars into Phase 2.5 assembly context for deterministic insights processing in Codex mode.
+
+**`skills/dev-activity-report-skill/scripts/run_pipeline.py`**
+- Removed stale `--non-interactive` usage when invoking `setup_env.py` on missing `.env`.
+
+**`tests/test_prompt_parsing_and_refresh.py`**
+- Added `TestRunReportContracts` regression assertions to catch these shell-path regressions:
+- `run_report.sh` must not contain `--non-interactive`
+- Phase 2.5 path must include insights merge hooks (`parse_insights_sections`, `extract_insights_quote_entries`, top-level `insights`)
+
+### Validation
+- `bash -n skills/dev-activity-report-skill/scripts/run_report.sh` (pass)
+- `python3 -m py_compile skills/dev-activity-report-skill/scripts/run_pipeline.py` (pass)
+- `pytest -q tests/test_prompt_parsing_and_refresh.py tests/test_integration_pipeline.py` (32 passed)
+- `pytest -q tests` (63 passed)
+- Real foreground pipeline run (`run_report.sh --foreground`) completed successfully:
+- total `58.49s` (`p1=0.25s`, `p1.5=12.46s`, `p2=45.67s`)
+- outputs written at `/home/nate/dev-activity-report-20260219T031013Z.json` and `/home/nate/dev-activity-report-20260219T031013Z.md`
+
+### Benchmarks
+- Targeted suite runtime: `32 tests in 0.97s`
+- Full suite runtime: `63 tests in 0.97s`
+- Foreground end-to-end runtime: `58.49s`
+
+---
+
+## Milestone 34 — Rename Project Identity To `dev-activity-report` (2026-02-20)
+
+**Problem**: The project was still labeled as `dev-activity-report-skill` in installer and helper UX, which conflicted with the intended project identity `dev-activity-report`.
+
+### Changes
+
+**`skills/dev-activity-report-skill/scripts/setup_env.py`**
+- Updated installer/help text to refer to `dev-activity-report`.
+- Changed default install target to `~/.claude/skills/dev-activity-report`.
+
+**`skills/dev-activity-report-skill/scripts/sync_skill.sh`**
+- Updated sync destination to `~/.claude/skills/dev-activity-report`.
+- Updated header comments to match the new destination.
+
+**`skills/dev-activity-report-skill/scripts/thorough_refresh.py`**
+- Updated installed `.env` lookup to prefer `~/.claude/skills/dev-activity-report/.env`.
+- Added legacy fallback to `~/.claude/skills/dev-activity-report-skill/.env`.
+- Refresh cleanup now targets both installed directories so existing environments remain safe during transition.
+
+**`tests/conftest.py`**
+- Updated suite description string to `dev-activity-report`.
+
+**`tests/fixtures/__init__.py`**
+- Updated fixture module description string to `dev-activity-report`.
+
+**`tests/README.md`**
+- Updated test suite title to `dev-activity-report`.
+
+### Validation
+- `python3 -m py_compile skills/dev-activity-report-skill/scripts/setup_env.py skills/dev-activity-report-skill/scripts/thorough_refresh.py` (pass)
+- `bash -n skills/dev-activity-report-skill/scripts/sync_skill.sh` (pass)
+- `pytest -q tests/test_prompt_parsing_and_refresh.py tests/test_integration_pipeline.py` (32 passed)
+- `pytest -q tests` (63 passed)
+
+### Benchmarks
+- Targeted suite runtime: `32 tests in 1.29s`
+- Full suite runtime: `63 tests in 1.16s`
+
+---
+
 *End of Build History*

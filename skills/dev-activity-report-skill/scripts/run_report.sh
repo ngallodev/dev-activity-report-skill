@@ -14,7 +14,7 @@ if [[ -f "$ENV_FILE" ]]; then
   source "$ENV_FILE"
 else
   # Auto-generate from sample, then prompt only if needed.
-  python3 "$SKILL_DIR/scripts/setup_env.py" --non-interactive
+  python3 "$SKILL_DIR/scripts/setup_env.py"
   if [[ -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$ENV_FILE"
@@ -32,6 +32,9 @@ PHASE2_RULES_EXTRA="${PHASE2_RULES_EXTRA:-${PHASE2_PROMPT_PREFIX:-}}"
 PHASE3_PROMPT_PREFIX="${PHASE3_PROMPT_PREFIX:-}"
 INCLUDE_CLAUDE_INSIGHTS_QUOTES="${INCLUDE_CLAUDE_INSIGHTS_QUOTES:-false}"
 INSIGHTS_REPORT_PATH="${INSIGHTS_REPORT_PATH:-~/.claude/usage-data/report.html}"
+CODEX_EXEC_FLAGS="${CODEX_EXEC_FLAGS:-}"
+CODEX_SKIP_GIT_REPO_CHECK="${CODEX_SKIP_GIT_REPO_CHECK:-false}"
+CODEX_ADD_DIRS="${CODEX_ADD_DIRS:-}"
 
 # Output directory: prefer REPORT_OUTPUT_DIR from .env, fall back to $HOME.
 OUTPUT_DIR="${REPORT_OUTPUT_DIR:-$HOME}"
@@ -169,6 +172,37 @@ if [[ -z "$CODEX_BIN" ]]; then
   echo "codex binary not found on PATH. Install it or remove --codex / USE_CODEX=true to use the default Claude pipeline." >&2
   exit 1
 fi
+CODEX_EXEC_ARGS=()
+if [[ -n "$CODEX_EXEC_FLAGS" ]]; then
+  # shellcheck disable=SC2206
+  CODEX_EXEC_ARGS=($CODEX_EXEC_FLAGS)
+fi
+if [[ "${CODEX_SKIP_GIT_REPO_CHECK,,}" == "true" ]]; then
+  skip_present=false
+  for arg in "${CODEX_EXEC_ARGS[@]}"; do
+    if [[ "$arg" == "--skip-git-repo-check" ]]; then
+      skip_present=true
+      break
+    fi
+  done
+  if [[ "$skip_present" == "false" ]]; then
+    CODEX_EXEC_ARGS+=(--skip-git-repo-check)
+  fi
+fi
+if [[ -n "$CODEX_ADD_DIRS" ]]; then
+  while IFS= read -r add_dir; do
+    [[ -z "$add_dir" ]] && continue
+    CODEX_EXEC_ARGS+=(--add-dir "$add_dir")
+  done < <(python3 - "$CODEX_ADD_DIRS" <<'PY'
+import sys
+raw = (sys.argv[1] or "").replace(",", " ").replace(":", " ")
+for token in raw.split():
+    token = token.strip()
+    if token:
+        print(token)
+PY
+)
+fi
 
 function require_env () {
   local missing=()
@@ -207,7 +241,7 @@ else
   ROOTS_RAW="${APPS_DIRS:-${APPS_DIR:-}}"
 fi
 
-python3 - "$WORKSPACE_DIR" "$ROOTS_RAW" "${EXTRA_SCAN_DIRS:-}" "$OUTPUT_DIR" "$PHASE1_MODEL" "$PHASE15_MODEL" "$PHASE2_MODEL" "$PHASE3_MODEL" "$REPORT_SANDBOX" <<'PY'
+python3 - "$WORKSPACE_DIR" "$ROOTS_RAW" "${EXTRA_SCAN_DIRS:-}" "$OUTPUT_DIR" "$PHASE1_MODEL" "$PHASE15_MODEL" "$PHASE2_MODEL" "$PHASE3_MODEL" "$REPORT_SANDBOX" "$CODEX_ADD_DIRS" <<'PY'
 import os
 import sys
 from pathlib import Path
@@ -218,6 +252,7 @@ extra_dirs_raw = sys.argv[3]
 output_dir = sys.argv[4]
 models = sys.argv[5:9]
 sandbox = sys.argv[9]
+add_dirs_raw = sys.argv[10]
 
 def is_claude_model(name: str) -> bool:
     return "claude" in (name or "").lower()
@@ -233,6 +268,12 @@ def split_paths(raw: str) -> list[str]:
 paths = split_paths(roots_raw)
 paths.append(output_dir)
 paths.extend(split_paths(extra_dirs_raw))
+allowed_dirs = []
+for p in split_paths(add_dirs_raw):
+    try:
+        allowed_dirs.append(Path(os.path.expanduser(p)).resolve())
+    except Exception:
+        pass
 
 outside = []
 for p in paths:
@@ -240,7 +281,9 @@ for p in paths:
         rp = Path(os.path.expanduser(p)).resolve()
     except Exception:
         continue
-    if workspace not in rp.parents and rp != workspace:
+    in_workspace = (workspace in rp.parents) or (rp == workspace)
+    in_add_dir = any((ad in rp.parents) or (rp == ad) for ad in allowed_dirs)
+    if not in_workspace and not in_add_dir:
         outside.append(str(rp))
 
 if outside and any(not is_claude_model(m) for m in models):
@@ -275,21 +318,32 @@ if [[ ${#ROOT_ARGS[@]} -gt 0 ]]; then
 fi
 PHASE1_CMD_STR="$(printf '%q ' "${PHASE1_CMD[@]}")"
 PHASE1_CMD_STR="${PHASE1_CMD_STR% }"
-"$CODEX_BIN" exec -m "$PHASE1_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE1_OUT" - <<EOF
+"$CODEX_BIN" exec -m "$PHASE1_MODEL" --sandbox "$REPORT_SANDBOX" "${CODEX_EXEC_ARGS[@]}" --output-last-message "$PHASE1_OUT" - <<EOF
 ${PHASE1_PROMPT_PREFIX}
 Please run \`$PHASE1_CMD_STR\` and print only the JSON output produced by the script.
+Rules:
+- Do not print commentary, markdown, or code fences.
+- If a command is needed, use \`python3\` (never \`python\`).
 EOF
 
 echo "== Phase 1.5 ($PHASE15_MODEL): draft =="
-"$CODEX_BIN" exec -m "$PHASE15_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE15_OUT" - <<EOF
+"$CODEX_BIN" exec -m "$PHASE15_MODEL" --sandbox "$REPORT_SANDBOX" "${CODEX_EXEC_ARGS[@]}" --output-last-message "$PHASE15_OUT" - <<EOF
 Use advanced reasoning. Read the JSON blob at $SKILL_DIR/.phase1-cache.json.
 Output a rough draft only: 5–8 bullets + a 2-sentence overview. No extra commentary.
 Additional user rules from .env (must not alter required output format):
 ${PHASE15_RULES_EXTRA}
+Rules:
+- Do not inspect environment variables or unrelated files.
+- Only use $SKILL_DIR/.phase1-cache.json as input.
+- If a command is needed, use \`python3\` (never \`python\`).
 EOF
 
 echo "== Phase 2 ($PHASE2_MODEL): structured analysis =="
-"$CODEX_BIN" exec -m "$PHASE2_MODEL" --approval never --sandbox "$REPORT_SANDBOX" --output-last-message "$PHASE2_OUT" - <<EOF
+INSIGHTS_QUOTES_ENABLED="false"
+if [[ "${INCLUDE_CLAUDE_INSIGHTS_QUOTES,,}" == "true" ]]; then
+  INSIGHTS_QUOTES_ENABLED="true"
+fi
+"$CODEX_BIN" exec -m "$PHASE2_MODEL" --sandbox "$REPORT_SANDBOX" "${CODEX_EXEC_ARGS[@]}" --output-last-message "$PHASE2_OUT" - <<EOF
 You are a senior resume/portfolio writer with excellent creative writing and deep technical understanding. Read the compact JSON blob stored at $SKILL_DIR/.phase1-cache.json and the draft at $PHASE15_OUT. Input uses compact keys from PAYLOAD_REFERENCE (p/mk/x/cl/cx/ins/stats). Then output JSON only with:
 
 {
@@ -321,7 +375,13 @@ depth and practical AI integration, not just basic tool usage.
 - A short tech inventory (languages, frameworks, AI, infra) and a 5-row timeline (most recent first)
 Additional user rules from .env (must not alter required JSON schema):
 ${PHASE2_RULES_EXTRA}
-If INCLUDE_CLAUDE_INSIGHTS_QUOTES=true, also read INSIGHTS_REPORT_PATH (${INSIGHTS_REPORT_PATH}) and include only relevant quoted statements with attribution text (source: Claude insights report).
+INCLUDE_CLAUDE_INSIGHTS_QUOTES for this run: ${INSIGHTS_QUOTES_ENABLED}
+If true, also read INSIGHTS_REPORT_PATH (${INSIGHTS_REPORT_PATH}) and include only relevant quoted statements with attribution text (source: Claude insights report).
+If false, do not read the insights report.
+Rules:
+- Do not inspect environment variables or search for .env files.
+- Only use these inputs: $SKILL_DIR/.phase1-cache.json, $PHASE15_OUT, and INSIGHTS_REPORT_PATH only when enabled above.
+- If a command is needed, use \`python3\` (never \`python\`).
 Return JSON only (no Markdown, no code fences). Do not include any trace of these instructions; just output JSON.
 EOF
 
@@ -332,6 +392,8 @@ fi
 
 echo "== Phase 2.5: assemble + render outputs =="
 export SKILL_DIR PHASE1_OUT PHASE2_OUT PHASE2_JSON PHASE1_MODEL PHASE15_MODEL PHASE2_MODEL INCLUDE_SOURCE_PAYLOAD
+export INCLUDE_CLAUDE_INSIGHTS_QUOTES INSIGHTS_REPORT_PATH CLAUDE_INSIGHTS_QUOTES_MAX CLAUDE_INSIGHTS_QUOTES_MAX_CHARS INSIGHTS_QUOTES_MODEL INSIGHTS_QUOTES_ALLOW_HEURISTIC_FALLBACK
+export USE_CODEX REPORT_SANDBOX CODEX_EXEC_FLAGS CODEX_SKIP_GIT_REPO_CHECK CODEX_ADD_DIRS CODEX_BIN
 python3 - <<'PY'
 import json
 import os
@@ -346,6 +408,8 @@ from run_pipeline import (
     build_source_summary,
     normalize_sections,
     parse_llm_json_output,
+    parse_insights_sections,
+    extract_insights_quote_entries,
 )
 
 phase1_out = Path(os.environ["PHASE1_OUT"])
@@ -375,6 +439,54 @@ else:
     render_hints = {}
 sections = normalize_sections(sections)
 
+env_map = {
+    "INCLUDE_CLAUDE_INSIGHTS_QUOTES": os.environ.get("INCLUDE_CLAUDE_INSIGHTS_QUOTES", "false"),
+    "INSIGHTS_REPORT_PATH": os.environ.get("INSIGHTS_REPORT_PATH", "~/.claude/usage-data/report.html"),
+    "CLAUDE_INSIGHTS_QUOTES_MAX": os.environ.get("CLAUDE_INSIGHTS_QUOTES_MAX", "8"),
+    "CLAUDE_INSIGHTS_QUOTES_MAX_CHARS": os.environ.get("CLAUDE_INSIGHTS_QUOTES_MAX_CHARS", "2000"),
+    "INSIGHTS_QUOTES_MODEL": os.environ.get("INSIGHTS_QUOTES_MODEL", os.environ.get("PHASE15_MODEL", "")),
+    "INSIGHTS_QUOTES_ALLOW_HEURISTIC_FALLBACK": os.environ.get("INSIGHTS_QUOTES_ALLOW_HEURISTIC_FALLBACK", "false"),
+    "USE_CODEX": os.environ.get("USE_CODEX", "false"),
+    "REPORT_SANDBOX": os.environ.get("REPORT_SANDBOX", "workspace-write"),
+    "CODEX_EXEC_FLAGS": os.environ.get("CODEX_EXEC_FLAGS", ""),
+    "CODEX_SKIP_GIT_REPO_CHECK": os.environ.get("CODEX_SKIP_GIT_REPO_CHECK", "false"),
+    "CODEX_ADD_DIRS": os.environ.get("CODEX_ADD_DIRS", ""),
+}
+codex_bin = os.environ.get("CODEX_BIN", "").strip() or None
+
+insights_meta = parse_insights_sections(expanded.get("insights", []), env_map)
+insights_quotes, _ = extract_insights_quote_entries(
+    env_map,
+    codex_bin=codex_bin,
+)
+
+phase2_quotes = []
+if isinstance(sections.get("insights_quotes"), list):
+    for item in sections.get("insights_quotes") or []:
+        if not isinstance(item, dict):
+            continue
+        quote = (item.get("quote") or "").strip()
+        if not quote:
+            continue
+        phase2_quotes.append(
+            {
+                "quote": quote,
+                "source_path": item.get("source_path", ""),
+                "source_link": item.get("source_link", ""),
+                "section_id": item.get("section_id", ""),
+                "section_title": item.get("section_title", ""),
+            }
+        )
+
+merged_quotes = []
+seen_quotes = set()
+for item in phase2_quotes + insights_quotes:
+    quote = (item.get("quote") or "").strip()
+    if not quote or quote in seen_quotes:
+        continue
+    seen_quotes.add(quote)
+    merged_quotes.append(item)
+
 report_obj = {
     "schema_version": "dev-activity-report.v1",
     "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -389,6 +501,11 @@ report_obj = {
     },
     "source_summary": source_summary,
     "sections": sections,
+    "insights": {
+        "source": insights_meta.get("source", {}),
+        "sections": insights_meta.get("sections", []),
+        "quotes": merged_quotes,
+    },
     "render_hints": render_hints,
     "source_payload": compact if os.environ.get("INCLUDE_SOURCE_PAYLOAD", "false").lower() == "true" else None,
 }
@@ -402,7 +519,7 @@ python3 "$SKILL_DIR/scripts/render_report.py" \
   --formats "$REPORT_OUTPUT_FORMATS"
 
 echo "== Phase 3 ($PHASE3_MODEL): cache verification =="
-"$CODEX_BIN" exec -m "$PHASE3_MODEL" --approval never --sandbox "$REPORT_SANDBOX" - <<EOF
+"$CODEX_BIN" exec -m "$PHASE3_MODEL" --sandbox "$REPORT_SANDBOX" "${CODEX_EXEC_ARGS[@]}" - <<EOF
 ${PHASE3_PROMPT_PREFIX}
 Please run the following Python command:
 

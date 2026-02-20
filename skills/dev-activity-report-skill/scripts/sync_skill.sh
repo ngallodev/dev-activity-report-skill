@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sync_skill.sh — Sync repo skill to ~/.claude/skills/ and verify identity.
 #
-# Copies skills/dev-activity-report-skill/ → ~/.claude/skills/dev-activity-report-skill/
+# Copies skills/dev-activity-report-skill/ → ~/.claude/skills/dev-activity-report/
 # using rsync (excludes runtime/cache files), then runs diff to confirm the
 # installed copy is identical to the repo source.
 #
@@ -24,7 +24,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_BASE="${CLAUDE_SKILLS_DIR:-${HOME}/.claude/skills}"
-INSTALL_DIR="${INSTALL_BASE}/dev-activity-report-skill"
+INSTALL_DIR="${INSTALL_BASE}/dev-activity-report"
 
 CHECK_ONLY=0
 DRY_RUN=0

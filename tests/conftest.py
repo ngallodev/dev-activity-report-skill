@@ -1,5 +1,5 @@
 """
-Compact test suite for dev-activity-report-skill.
+Compact test suite for dev-activity-report.
 
 Focus: Critical integration points, caching, error handling, configuration edge cases.
 Strategy: Mock all LLM calls, use tmp_path fixtures, test contracts not implementations.

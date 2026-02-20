@@ -1,5 +1,5 @@
 """
-Shared test fixtures for dev-activity-report-skill integration tests.
+Shared test fixtures for dev-activity-report integration tests.
 
 This module provides factory functions for creating valid test data
 that conforms to the JSON schemas in tests/contracts/.

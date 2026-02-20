@@ -82,7 +82,7 @@ class TestPhase2JsonParsing:
 
         called = {"codex": 0, "claude": 0}
 
-        def fake_codex(prompt, model, codex_bin, sandbox="workspace-write", system_prompt=None, timeout=300):
+        def fake_codex(prompt, model, codex_bin, env=None, sandbox="workspace-write", system_prompt=None, timeout=300):
             called["codex"] += 1
             return "{}", {"prompt_tokens": 0, "completion_tokens": 0}
 
@@ -119,6 +119,7 @@ class TestPhase2JsonParsing:
 
     def test_extract_insights_quotes_opt_in(self, tmp_path):
         import run_pipeline
+        import unittest.mock as mock
 
         html_file = tmp_path / "report.html"
         html_file.write_text(
@@ -132,12 +133,17 @@ class TestPhase2JsonParsing:
             "CLAUDE_INSIGHTS_QUOTES_MAX": "3",
             "CLAUDE_INSIGHTS_QUOTES_MAX_CHARS": "500",
         }
-        block, source = run_pipeline.extract_insights_quotes(env)
+        def fake_model_call(prompt, model, env, claude_bin=None, codex_bin=None, system_prompt=None, timeout=300):
+            return '{"quotes":["Delivered two complex automation upgrades."]}', {}
+
+        with mock.patch.object(run_pipeline, "call_model", fake_model_call):
+            block, source = run_pipeline.extract_insights_quotes(env, claude_bin="/usr/bin/claude")
         assert "Delivered two complex automation upgrades." in block
         assert source == str(html_file)
 
     def test_extract_insights_quote_entries_opt_in(self, tmp_path):
         import run_pipeline
+        import unittest.mock as mock
 
         html_file = tmp_path / "report.html"
         html_file.write_text(
@@ -150,11 +156,31 @@ class TestPhase2JsonParsing:
             "CLAUDE_INSIGHTS_QUOTES_MAX": "3",
             "CLAUDE_INSIGHTS_QUOTES_MAX_CHARS": "500",
         }
-        entries, source = run_pipeline.extract_insights_quote_entries(env)
+        def fake_model_call(prompt, model, env, claude_bin=None, codex_bin=None, system_prompt=None, timeout=300):
+            return '{"quotes":["Workflow outcomes improved after automation cleanup."]}', {}
+
+        with mock.patch.object(run_pipeline, "call_model", fake_model_call):
+            entries, source = run_pipeline.extract_insights_quote_entries(env, claude_bin="/usr/bin/claude")
         assert entries
         assert entries[0]["quote"].startswith("Workflow outcomes")
         assert entries[0]["source_path"] == str(html_file)
         assert entries[0]["source_link"].startswith("file://")
+        assert source == str(html_file)
+
+    def test_extract_insights_quotes_no_heuristic_fallback_by_default(self, tmp_path):
+        import run_pipeline
+
+        html_file = tmp_path / "report.html"
+        html_file.write_text(
+            "<html><body><p>Workflow outcomes improved after automation cleanup.</p></body></html>",
+            encoding="utf-8",
+        )
+        env = {
+            "INCLUDE_CLAUDE_INSIGHTS_QUOTES": "true",
+            "INSIGHTS_REPORT_PATH": str(html_file),
+        }
+        entries, source = run_pipeline.extract_insights_quote_entries(env)
+        assert entries == []
         assert source == str(html_file)
 
     def test_parse_insights_sections(self):
@@ -239,7 +265,7 @@ class TestPhase15ThoroughMode:
 
         called = {"codex": 0, "claude": 0}
 
-        def fake_codex(prompt, model, codex_bin, sandbox="workspace-write", system_prompt=None, timeout=300):
+        def fake_codex(prompt, model, codex_bin, env=None, sandbox="workspace-write", system_prompt=None, timeout=300):
             called["codex"] += 1
             return "- bullet", {"prompt_tokens": 0, "completion_tokens": 0}
 
@@ -328,3 +354,18 @@ class TestThoroughRefresh:
 
         assert (project / ".forked-work-modified") in plan.touch_files
         assert (project / ".not-my-work") in plan.delete_files
+
+
+class TestRunReportContracts:
+    """Regression checks for run_report.sh runtime contract."""
+
+    def test_setup_env_uses_supported_flags(self):
+        script = Path("skills/dev-activity-report-skill/scripts/run_report.sh").read_text(encoding="utf-8")
+        assert "--non-interactive" not in script
+        assert 'python3 "$SKILL_DIR/scripts/setup_env.py"' in script
+
+    def test_codex_phase25_merges_insights_metadata(self):
+        script = Path("skills/dev-activity-report-skill/scripts/run_report.sh").read_text(encoding="utf-8")
+        assert "parse_insights_sections" in script
+        assert "extract_insights_quote_entries" in script
+        assert '"insights": {' in script

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-command installer and .env setup helper for dev-activity-report-skill."""
+"""One-command installer and .env setup helper for dev-activity-report."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import sys
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
 EXAMPLE_NAME = ".env.example"
-DEFAULT_INSTALL_DIR = Path.home() / ".claude" / "skills" / SKILL_DIR.name
+DEFAULT_INSTALL_DIR = Path.home() / ".claude" / "skills" / "dev-activity-report"
 
 PROMPT_KEYS = {
     "APPS_DIR",
@@ -206,7 +206,7 @@ def run_installer(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Install/sync dev-activity-report-skill into ~/.claude/skills.")
+    parser = argparse.ArgumentParser(description="Install/sync dev-activity-report into ~/.claude/skills.")
     parser.add_argument(
         "--install-dir",
         type=Path,
